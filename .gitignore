@@ -1,0 +1,18 @@
+# Build output
+build/
+**/obj/
+**/bin/
+
+# Host-specific paths (machine-local game install)
+GamePaths.props
+
+# IDE / editor
+.vs/
+.vscode/
+*.user
+*.suo
+*.DotSettings.user
+
+# OS
+.DS_Store
+Thumbs.db

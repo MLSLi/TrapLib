@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Path to CasualtiesUnknown_Data\Managed (contains Assembly-CSharp.dll, UnityEngine.dll, etc.) -->
+    <GameManagedPath>C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Demo\CasualtiesUnknown_Data\Managed</GameManagedPath>
+    <!-- Path to BepInEx\core (contains BepInEx.dll, 0Harmony.dll) -->
+    <BepInExPath>C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Demo\BepInEx\core</BepInExPath>
+  </PropertyGroup>
+</Project>
