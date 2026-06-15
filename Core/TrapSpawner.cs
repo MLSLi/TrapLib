@@ -23,6 +23,8 @@ internal static class TrapSpawner
         var instantiating = Traverse.Create(__instance).Field("instantiatingWorld").GetValue<bool>();
         if (instantiating) return;
 
+        if (!__instance.worldExists) return;
+
         DidSpawn = true;
 
         TrapLibPlugin.Log?.LogInfo($"Generation done: biomeDepth={__instance.biomeDepth}, trapRarity={__instance.totalTrapRarity}");

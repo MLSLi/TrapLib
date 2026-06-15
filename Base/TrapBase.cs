@@ -124,6 +124,8 @@ public abstract class TrapBase : MonoBehaviour
     private Vector3 SnapToSurface(Vector3 pos, int mask)
     {
         var origin = pos + Vector3.up * 4f;
+        for (int safety = 0; safety < 20 && Physics2D.OverlapPoint(origin, mask); safety++)
+            origin.y += 0.5f;
         var hit = Physics2D.Raycast(origin, Vector2.down, 12f, mask);
         if (!hit)
         {
