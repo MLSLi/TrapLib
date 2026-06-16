@@ -54,11 +54,11 @@ internal static class BuildingEntityPatch
         if (!(__instance.health < 0.5f))
             return false;
 
-        // On MP client, destroy locally — server handles drops and particles.
-        // TrapLib traps are spawned during worldgen on both sides; client destruction
-        // is safe because KrokMP's tracker component handles NetObjectRegistry cleanup.
+        // On MP client, destroy locally with visual feedback.
+        // Drops are handled by the server; particles are purely cosmetic.
         if (MPSync.IsClient)
         {
+            SpawnDestructionParticles(__instance);
             if (__instance.TryGetComponent<TrapBase>(out var t))
                 t.MarkDestroyed();
             Object.Destroy(__instance.gameObject);
@@ -66,18 +66,7 @@ internal static class BuildingEntityPatch
         }
 
         // --- destruction particles ---
-        if (__instance.TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
-        {
-            var particleObj = Object.Instantiate(Resources.Load("BuildingBreakParticle"),
-                __instance.transform.position, __instance.transform.rotation);
-            if (particleObj is GameObject go)
-            {
-                var shape = go.GetComponent<ParticleSystem>().shape;
-                shape.texture = sr.sprite.texture;
-                shape.sprite = sr.sprite;
-                go.GetComponent<ParticleSystem>().Play();
-            }
-        }
+        SpawnDestructionParticles(__instance);
 
         Object.Instantiate(Resources.Load<GameObject>("DustBig"),
             __instance.transform.position, Quaternion.identity);
@@ -128,5 +117,22 @@ internal static class BuildingEntityPatch
         go.GetComponent<Rigidbody2D>().velocity = new Vector2(Random.Range(-7f, 7f), Random.Range(-7f, 7f));
         go.GetComponent<Item>().SetCondition(condition);
         if (fresh) go.AddComponent<FreshItemDrop>();
+    }
+
+    /// <summary>Spawns sprite-shaped break particle at the building position. Cosmetic only.</summary>
+    internal static void SpawnDestructionParticles(BuildingEntity be)
+    {
+        if (be.TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
+        {
+            var particleObj = Object.Instantiate(Resources.Load("BuildingBreakParticle"),
+                be.transform.position, be.transform.rotation);
+            if (particleObj is GameObject go)
+            {
+                var shape = go.GetComponent<ParticleSystem>().shape;
+                shape.texture = sr.sprite.texture;
+                shape.sprite = sr.sprite;
+                go.GetComponent<ParticleSystem>().Play();
+            }
+        }
     }
 }

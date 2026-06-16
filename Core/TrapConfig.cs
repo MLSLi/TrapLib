@@ -91,8 +91,14 @@ public class ExplosiveTrapConfig : TrapConfig
 {
     // ---- Explosion (mandatory) ----
 
-    /// <summary>Range passed to CreateExplosion.</summary>
+    /// <summary>Range passed to CreateExplosion (damage radius).</summary>
     public float ExplosionRange = 25f;
+
+    /// <summary>
+    /// Radius of the persistent zone (collider + fog visual).
+    /// 0 or negative = fall back to <see cref="ExplosionRange"/>.
+    /// </summary>
+    public float ZoneRadius;
 
     /// <summary>Explosion parameters (damage, chances, velocity, sound).</summary>
     public ExplosionParams ExplosionParams;

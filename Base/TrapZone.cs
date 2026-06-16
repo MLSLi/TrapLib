@@ -24,6 +24,7 @@ public abstract class TrapZone : MonoBehaviour
 
     private HashSet<Body> _current = new HashSet<Body>();
     private HashSet<Body> _previous = new HashSet<Body>();
+    internal HashSet<Body> Current => _current;
     private float _accum;
     private float _tickAccum;
     private float _age;
@@ -50,6 +51,11 @@ public abstract class TrapZone : MonoBehaviour
     protected virtual void OnTriggerStay2D(Collider2D other)
     {
         if (MPSync.IsClient) return; // client only needs fog visual — skip body tracking
+        TrackBody(other);
+    }
+
+    protected void TrackBody(Collider2D other)
+    {
         var body = other.GetComponentInParent<Body>();
         if (body != null) _current.Add(body);
     }
@@ -133,4 +139,23 @@ public abstract class TrapZone : MonoBehaviour
     /// Use for periodic particles or audio. Everyone.
     /// </summary>
     protected virtual void OnTick() { }
+
+    // ---- Factory ----
+
+    /// <summary>
+    /// Create a zone GameObject with common setup (Ground layer, trigger collider,
+    /// fog sprite, radius/duration/fogColor from config). Returns the zone component
+    /// so the caller can set extra parameters.
+    /// </summary>
+    public static T Create<T>(string name, Vector3 center, ExplosiveTrapConfig cfg) where T : TrapZone
+    {
+        var go = new GameObject(name);
+        go.transform.position = center;
+        go.layer = LayerMask.NameToLayer("Ground");
+        var zone = go.AddComponent<T>();
+        zone.radius = cfg.ZoneRadius > 0f ? cfg.ZoneRadius : cfg.ExplosionRange;
+        zone.duration = cfg.ZoneDuration;
+        zone.fogColor = cfg.FogColor;
+        return zone;
+    }
 }

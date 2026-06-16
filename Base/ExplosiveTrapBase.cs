@@ -1,4 +1,5 @@
 using TrapLib.MP;
+using TrapLib.Utilities;
 using UnityEngine;
 
 namespace TrapLib;
@@ -45,13 +46,30 @@ public abstract class ExplosiveTrapBase : TrapBase
         }
         else
         {
-            if (!collision.collider.attachedRigidbody || collision.collider.attachedRigidbody.isKinematic) return;
-            if (collision.collider.attachedRigidbody.mass < 0.5f) return;
+            // Standard filter: requires a dynamic rigidbody with sufficient mass nearby.
+            if (!collision.collider.attachedRigidbody || collision.collider.attachedRigidbody.isKinematic)
+            {
+                // Fallback: ragdolled players have kinematic/joint-driven limbs that fail
+                // the standard check. Detect player limbs directly so traps still trigger.
+                if (!IsPlayerLimbCollision(collision))
+                    return;
+            }
+            else if (collision.collider.attachedRigidbody.mass < 0.5f)
+            {
+                if (!IsPlayerLimbCollision(collision))
+                    return;
+            }
             if (PlayerCamera.main?.body == null) return;
             if (Vector2.Distance(transform.position, PlayerCamera.main.body.transform.position) > 50f) return;
         }
 
         Trigger();
+    }
+
+    private static bool IsPlayerLimbCollision(Collision2D collision)
+    {
+        var limb = Body.LimbFromObject(collision.collider.gameObject, collision.GetContact(0).point);
+        return limb != null && limb.body != null;
     }
 
     /// <summary>
@@ -126,10 +144,44 @@ public abstract class ExplosiveTrapBase : TrapBase
 
             ApplyBlast(center);
             ExpConfig.OnBurst?.Invoke(center, ExpConfig);
-        }
 
-        _build.health = 0f;
-        Object.Destroy(gameObject);
+            _build.health = 0f;
+            Object.Destroy(gameObject);
+        }
+        else
+        {
+            // Client: local visual explosion + particles.
+            // KrokMP may not reliably sync CreateExplosion for custom traps, so we
+            // spawn the explosion effect directly. Damage is handled by the server.
+            if (ExpConfig.ExplosionParams != null)
+            {
+                var e = ExpConfig.ExplosionParams;
+                Sound.Play(e.sound, center, twoDimensional: false, pitchShift: false);
+                Object.Instantiate(Resources.Load("Special/ExplosionParticle"), center, Quaternion.identity);
+                var blast = Object.Instantiate(Resources.Load<GameObject>("Special/blastmark"), center, Quaternion.identity);
+                blast.transform.eulerAngles = new Vector3(0, 0, Random.value * 360f);
+                SpawnFogParticles(center, ExpConfig.ExplosionRange, ExpConfig.FogColor);
+            }
+            // Apply blast debuff to local player for immediate client-side feedback.
+            // The server applies authoritative damage; this gives the player instant
+            // feedback that they were caught in the blast.
+            if (ExpConfig.BlastRadius > 0f)
+            {
+                float rSqr = ExpConfig.BlastRadius * ExpConfig.BlastRadius;
+                var localBody = PlayerCamera.main?.body;
+                if (localBody != null && localBody.alive
+                    && ((Vector2)(localBody.transform.position - center)).sqrMagnitude < rSqr)
+                {
+                    ApplyBlastDebuff(localBody);
+                }
+            }
+            Patches.BuildingEntityPatch.SpawnDestructionParticles(_build);
+            Object.Instantiate(Resources.Load<GameObject>("DustBig"), center, Quaternion.identity);
+            TrapSounds.PlayDestroy(_build);
+            if (_sr != null) _sr.enabled = false;
+            foreach (var c in GetComponentsInChildren<Collider2D>())
+                c.enabled = false;
+        }
     }
 
     // ---- Blast (direct-hit burst zone) ----

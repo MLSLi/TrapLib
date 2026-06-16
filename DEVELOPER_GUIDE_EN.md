@@ -5,8 +5,8 @@ TrapLib is a BepInEx library that provides a unified framework for custom traps:
 ## Dependencies
 
 - **Hard**: BepInEx + Harmony (bundled with BepInEx)
-- **Soft**: [RshLib](https://github.com/rushellxyz/rshlib) (custom item library, optional)
-- **Soft**: [KrokoshaCasualtiesMP](https://github.com/rushellxyz/KrokoshaCasualtiesMP) (multiplayer, optional)
+- **Soft**: RshLib by rushellxyz (custom item library, optional)
+- **Soft**: [KrokoshaCasualtiesMP](https://github.com/Krokosha666/cas-unk-krokosha-multiplayer-coop) (multiplayer, optional)
 
 Zero compile-time dependency on RshLib/KrokMP — all integration is runtime via reflection.
 
@@ -216,6 +216,7 @@ Or via console:
 | Item drops | ✓ (BuildingEntity) | — |
 
 Key rules:
+
 - **Damage / state changes go in `OnBurst`, `ApplyBlastDebuff`, or `ApplyEffect`** — auto-limited to server
 - **Visual effects go in `OnTriggered`, `OnFuseUpdate`, `OnTick`, `OnContactTriggered`** — visible on both sides
 - **`OnExpiring` is server-only — do not put client visual effects there**

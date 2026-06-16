@@ -5,8 +5,8 @@ TrapLib 是一个 BepInEx 前置库，为自定义陷阱提供统一的注册、
 ## 依赖
 
 - **硬依赖**：BepInEx + Harmony（BepInEx 自带）
-- **软依赖**：[RshLib](https://github.com/rushellxyz/rshlib)（自定义物品库，可选）
-- **软依赖**：[KrokoshaCasualtiesMP](https://github.com/rushellxyz/KrokoshaCasualtiesMP)（多人联机，可选）
+- **软依赖**：RshLib by rushellxyz（自定义物品库，可选）
+- **软依赖**：[KrokoshaCasualtiesMP](https://github.com/Krokosha666/cas-unk-krokosha-multiplayer-coop)（多人联机，可选）
 
 编译时**零依赖** RshLib/KrokMP——所有集成均通过反射运行时检测。
 
@@ -125,7 +125,8 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `ExplosionRange` | `float` | `25` | 爆炸范围。TrapLib 会自动将其写入 `ExplosionParams.range`——**不要在 ExplosionParams 中手动设置 `range`，会被覆盖** |
+| `ExplosionRange` | `float` | `25` | 爆炸伤害半径 (`CreateExplosion.range`)。独立于区域半径 |
+| `ZoneRadius` | `float` | `0` | 持续区域半径。≤0 时回退到 `ExplosionRange`。与爆炸半径解耦——大范围迷雾 + 小范围爆炸伤害 |
 | `ExplosionParams` | `ExplosionParams` | 必填 | 爆炸参数。**注意：`range` 和 `position` 由 TrapLib 自动填充（`range` 来自 `ExplosionRange`，`position` 为爆心坐标），手动设置无效。**只需设置伤害、概率、速度、音效 |
 | `FuseTime` | `float` | `0.5` | 引信秒数。`0`=瞬爆（无 pressed 状态、无引信音效） |
 | `FuseSound` | `string` | `"mine"` | 引信点燃时播放的音效 ID |
@@ -137,7 +138,7 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `ZoneDuration` | `float` | `30` | 持续区域存在秒数 |
 | `FogColor` | `Color` | `white` | 区域迷雾贴图的颜色遮罩 |
 | `CreateZone` | `Func<Vector3, ExplosiveTrapConfig, GameObject>` | `null` | 创建持续区域 GameObject。null=无区域。引爆时双端调用；TrapZone 内部自动区分服务端/客户端行为 |
-| `BlastRadius` | `float` | `0` | 爆炸瞬间直接命中半径。>0 时自动扫描范围内 Body 并调用 `ApplyBlastDebuff`。0=禁用。服务端执行 |
+| `BlastRadius` | `float` | `0` | 爆炸瞬间冲击波半径。>0 时对范围内 Body 调用 `ApplyBlastDebuff`（服务端对所有玩家，客户端对本地玩家提供即时反馈）。0=禁用 |
 | `OnBurst` | `Action<Vector3, ExplosiveTrapConfig>` | `null` | 爆炸瞬间额外一次性效果（在 `BlastRadius` 处理之后）。**仅服务端/单机执行** |
 | `OnDestroyedWithoutDetonation` | `Action<ExplosiveTrapBase, Vector3>` | `null` | 被打爆但未引爆时回调。参数 (trap, center)。仅服务端/单机执行。用途：核泄漏等 |
 
@@ -199,6 +200,19 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `OnBodyExit(Body)` | virtual——Body 离开区域时调用一次。服务端执行 |
 | `OnExpiring()` | virtual——进入淡出期时调用一次（`_age > duration - fadeTime`）。服务端执行 |
 | `OnTick()` | virtual——每 `tickInterval` 秒调用一次。双端执行。用途：粒子、音效 |
+| `Create<T>(name, center, cfg)` | **static**——创建 zone GameObject（设 Ground 层、触发器、迷雾精灵、radius/duration/fogColor）。返回 `T` 以便设置额外参数 |
+
+### `TimedDestroy` (`TrapLib.Utilities`)
+
+可复用基类——`duration` 秒后自毁。子类覆盖 `OnUpdate()`（到期前每帧）和 `OnExpire()`（一次性清理）。
+
+```csharp
+class MyDebuff : TimedDestroy
+{
+    protected override void OnUpdate() { /* 每帧效果 */ }
+    protected override void OnExpire() { /* 到期清理 */ }
+}
+```
 
 ---
 
@@ -216,11 +230,14 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `TrapZone.OnBodyEnter/Exit` | ✓ | — |
 | `TrapZone.OnExpiring` | ✓ | — |
 | `TrapZone.OnTick` | ✓ | ✓ |
-| `OnBurst` / `ApplyBlastDebuff` | ✓ | — |
+| `OnBurst` | ✓ | — |
+| `ApplyBlastDebuff` | ✓ 全部玩家 | ✓ 仅本地玩家 (即时反馈) |
+| `Trigger` 默认碰撞 (布娃娃) | ✓ | ✓ (含肢体回退检测) |
 | `OnDestroyedWithoutDetonation` | ✓ | — |
 | 掉落物品 | ✓ (BuildingEntity) | — |
 
 要点：
+
 - **伤害/状态修改放 `OnBurst`、`ApplyBlastDebuff` 或 `ApplyEffect`**——这些自动限制服务端
 - **视觉效果放 `OnTriggered`、`OnFuseUpdate`、`OnTick`、`OnContactTriggered`**——双端可见
 - **`OnExpiring` 仅服务端执行，不要在其中放客户端视觉效果**
