@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
@@ -41,15 +42,15 @@ internal static class TrapSpawner
             var prefab = TrapRegistry.GetOrCreatePrefab(type, config);
             if (prefab == null) continue;
 
-            var resetMethod = type.GetMethod("ResetSpawnCount",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            var methodFlags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.FlattenHierarchy;
+            var resetMethod = type.GetMethod("ResetSpawnCount", methodFlags);
             resetMethod?.Invoke(null, null);
 
             __instance.DistributeEntities(prefab, min, max, config.InGroundChance, 0f, 0f,
                 false, false, null, true);
 
-            var countField = type.GetField("SpawnCount",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            var fieldFlags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.FlattenHierarchy;
+            var countField = type.GetField("SpawnCount", fieldFlags);
             int count = countField != null ? (int)countField.GetValue(null) : -1;
             TrapLibPlugin.Log?.LogInfo($"{config.Id}: spawned={count}");
         }
@@ -63,5 +64,6 @@ internal static class TrapSpawner_Reset
     {
         TrapSpawner.DidSpawn = false;
         TrapSpawner.WasGenerating = false;
+        TrapBase.TrapBuildings.Clear();
     }
 }

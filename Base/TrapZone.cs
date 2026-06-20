@@ -16,7 +16,7 @@ public abstract class TrapZone : MonoBehaviour
     public float duration;
     public Color fogColor = Color.white;
 
-    /// <summary>Seconds before expiry when <see cref="OnExpiring"/> is first called.</summary>
+    /// <summary>Seconds before expiry when <see cref="OnExpiring"/> starts being called every frame.</summary>
     public float fadeTime = 10f;
 
     /// <summary>Interval in seconds for <see cref="OnTick"/>. 0 = disabled.</summary>
@@ -28,7 +28,6 @@ public abstract class TrapZone : MonoBehaviour
     private float _accum;
     private float _tickAccum;
     private float _age;
-    private bool _expiring;
 
     protected virtual void Start()
     {
@@ -64,10 +63,9 @@ public abstract class TrapZone : MonoBehaviour
     {
         _age += Time.fixedDeltaTime;
 
-        // Expiration fade-out (server / SP only)
-        if (!MPSync.IsClient && !_expiring && _age > duration - fadeTime)
+        // Expiration fade-out — all instances for visual consistency
+        if (_age > duration - fadeTime)
         {
-            _expiring = true;
             OnExpiring();
         }
 
@@ -129,7 +127,7 @@ public abstract class TrapZone : MonoBehaviour
     protected virtual void OnBodyExit(Body body) { }
 
     /// <summary>
-    /// Called once when the zone enters its fade-out period
+    /// Called every frame when the zone enters its fade-out period
     /// (<see cref="fadeTime"/> seconds before expiry). Everyone.
     /// </summary>
     protected virtual void OnExpiring() { }

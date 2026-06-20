@@ -80,6 +80,12 @@ public class TrapConfig
 
     /// <summary>Items dropped via itemsDropOnDestroy.</summary>
     public ItemDrop[] Drops = System.Array.Empty<ItemDrop>();
+
+    /// <summary>
+    /// When true, this trap is NOT destroyed when the block beneath it is broken.
+    /// Use for traps that float, hover, or are otherwise not supported by the ground.
+    /// </summary>
+    public bool DoNotBreakOnGroundDestroyed;
 }
 
 /// <summary>
@@ -186,6 +192,14 @@ public class ExplosiveTrapConfig : TrapConfig
     /// Receives (trap, center position). Server / single-player only.
     /// </summary>
     public System.Action<ExplosiveTrapBase, Vector3> OnDestroyedWithoutDetonation;
+
+    /// <summary>
+    /// When true, the client-side explosion fallback (particles, sound, blastmark)
+    /// is skipped even when KrokMP is installed. Use this when you know KrokMP
+    /// reliably syncs CreateExplosion for this trap type, to avoid double effects.
+    /// Default: false (client spawns local explosion visuals).
+    /// </summary>
+    public bool NoClientFallback;
 }
 
 /// <summary>

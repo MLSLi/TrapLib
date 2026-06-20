@@ -13,12 +13,57 @@ public abstract class ExplosiveTrapBase : TrapBase
     public float timeSincePressed;
     protected bool _pressed, _detonated;
 
+    private static GameObject _cachedDustBig;
+    private static GameObject _cachedExplosionParticle;
+    private static GameObject _cachedBlastmark;
+    private Collider2D[] _cachedColliders;
+
+    private static GameObject DustBigPrefab
+    {
+        get
+        {
+            if (_cachedDustBig == null)
+                _cachedDustBig = Resources.Load<GameObject>("DustBig");
+            return _cachedDustBig;
+        }
+    }
+
+    private static GameObject ExplosionParticlePrefab
+    {
+        get
+        {
+            if (_cachedExplosionParticle == null)
+                _cachedExplosionParticle = Resources.Load("Special/ExplosionParticle") as GameObject;
+            return _cachedExplosionParticle;
+        }
+    }
+
+    private static GameObject BlastmarkPrefab
+    {
+        get
+        {
+            if (_cachedBlastmark == null)
+                _cachedBlastmark = Resources.Load<GameObject>("Special/blastmark");
+            return _cachedBlastmark;
+        }
+    }
+
     protected ExplosiveTrapConfig ExpConfig => (ExplosiveTrapConfig)Config;
 
     protected override void Update()
     {
         base.Update();
         if (Config == null) return; // prefab template
+
+        // On pure clients: if the server has detonated (health → 0), run our
+        // own local Detonate for visual feedback. This catches cases where the
+        // client's CustomTrigger logic couldn't independently detect the trigger
+        // (e.g. NuclearBomb triggered by a remote player the client can't see).
+        if (MPSync.IsClient && !_detonated && _build != null && _build.health < 0.5f)
+        {
+            Detonate();
+            return;
+        }
 
         if (!_detonated)
             ExpConfig.CustomTrigger?.Invoke(this);
@@ -110,7 +155,9 @@ public abstract class ExplosiveTrapBase : TrapBase
 
         // Disable our colliders so CreateExplosion's OverlapCircleAll doesn't find
         // our Static Rigidbody2D and try to set velocity on it.
-        foreach (var c in GetComponentsInChildren<Collider2D>())
+        if (_cachedColliders == null)
+            _cachedColliders = GetComponentsInChildren<Collider2D>();
+        foreach (var c in _cachedColliders)
             c.enabled = false;
 
         // Visuals — all instances
@@ -148,39 +195,62 @@ public abstract class ExplosiveTrapBase : TrapBase
             _build.health = 0f;
             Object.Destroy(gameObject);
         }
-        else
+        else if (!ExpConfig.NoClientFallback)
         {
             // Client: local visual explosion + particles.
             // KrokMP may not reliably sync CreateExplosion for custom traps, so we
             // spawn the explosion effect directly. Damage is handled by the server.
+            // Skip if NoClientFallback is set (KrokMP handles sync for this trap).
             if (ExpConfig.ExplosionParams != null)
             {
                 var e = ExpConfig.ExplosionParams;
                 Sound.Play(e.sound, center, twoDimensional: false, pitchShift: false);
-                Object.Instantiate(Resources.Load("Special/ExplosionParticle"), center, Quaternion.identity);
-                var blast = Object.Instantiate(Resources.Load<GameObject>("Special/blastmark"), center, Quaternion.identity);
-                blast.transform.eulerAngles = new Vector3(0, 0, Random.value * 360f);
+
+                var explosionParticle = ExplosionParticlePrefab;
+                if (explosionParticle != null)
+                    Object.Instantiate(explosionParticle, center, Quaternion.identity);
+                else
+                    TrapLibPlugin.Log?.LogWarning($"[ExplosiveTrapBase] Failed to load resource: Special/ExplosionParticle");
+
+                var blastmark = BlastmarkPrefab;
+                if (blastmark != null)
+                {
+                    var blast = Object.Instantiate(blastmark, center, Quaternion.identity);
+                    blast.transform.eulerAngles = new Vector3(0, 0, Random.value * 360f);
+                }
+                else
+                    TrapLibPlugin.Log?.LogWarning($"[ExplosiveTrapBase] Failed to load resource: Special/blastmark");
+                
                 SpawnFogParticles(center, ExpConfig.ExplosionRange, ExpConfig.FogColor);
             }
-            // Apply blast debuff to local player for immediate client-side feedback.
-            // The server applies authoritative damage; this gives the player instant
-            // feedback that they were caught in the blast.
-            if (ExpConfig.BlastRadius > 0f)
-            {
-                float rSqr = ExpConfig.BlastRadius * ExpConfig.BlastRadius;
-                var localBody = PlayerCamera.main?.body;
-                if (localBody != null && localBody.alive
-                    && ((Vector2)(localBody.transform.position - center)).sqrMagnitude < rSqr)
-                {
-                    ApplyBlastDebuff(localBody);
-                }
-            }
+            // Note: we deliberately do NOT apply ApplyBlastDebuff on the client.
+            // The server runs ApplyBlast authoritatively; applying it on the
+            // client as well would create a ~0.9s state divergence window where
+            // the server's sync packet overwrites the client's local values,
+            // causing visible health/temperature flickering if any other system
+            // modifies those body fields during that window.
             Patches.BuildingEntityPatch.SpawnDestructionParticles(_build);
-            Object.Instantiate(Resources.Load<GameObject>("DustBig"), center, Quaternion.identity);
+            var dustPrefab = DustBigPrefab;
+            if (dustPrefab != null)
+                Object.Instantiate(dustPrefab, center, Quaternion.identity);
             TrapSounds.PlayDestroy(_build);
             if (_sr != null) _sr.enabled = false;
             foreach (var c in GetComponentsInChildren<Collider2D>())
                 c.enabled = false;
+            // Set health to zero so TrapBase.Update and BuildingEntityPatch.Prefix
+            // can properly clean up the object, avoiding desync issues with KrokMP.
+            if (_build != null) _build.health = 0f;
+        }
+        else
+        {
+            // NoClientFallback: KrokMP handles explosion sync.
+            // Still need to clean up locally — hide sprite, play destroy sound, destroy object.
+            if (_sr != null) _sr.enabled = false;
+            Patches.BuildingEntityPatch.SpawnDestructionParticles(_build);
+            TrapSounds.PlayDestroy(_build);
+            // Set health to zero so TrapBase.Update and BuildingEntityPatch.Prefix
+            // can properly clean up the object, avoiding desync issues with KrokMP.
+            if (_build != null) _build.health = 0f;
         }
     }
 
@@ -197,7 +267,7 @@ public abstract class ExplosiveTrapBase : TrapBase
         if (r <= 0f) return;
 
         float rSqr = r * r;
-        foreach (var body in Object.FindObjectsOfType<Body>())
+        foreach (var body in MPSync.AllPlayerBodies)
         {
             if (body == null) continue;
             if (((Vector2)(body.transform.position - center)).sqrMagnitude < rSqr)
@@ -213,23 +283,32 @@ public abstract class ExplosiveTrapBase : TrapBase
 
     // ---- Non-detonated destruction ----
 
-    protected virtual void OnDestroy()
+    protected override void OnDestroy()
     {
-        if (Config == null) return;
-        if (!_destroyed || _detonated) return;
-        if (!MPSync.IsServerOrSP) return;
+        if (Config == null) { base.OnDestroy(); return; }
+        if (!_destroyed || _detonated) { base.OnDestroy(); return; }
+        // OnDestroyedWithoutDetonation runs on all instances so clients see the
+        // visual effect (zone fog). Zone damage (ApplyEffect) is server-only.
         ExpConfig.OnDestroyedWithoutDetonation?.Invoke(this, transform.position);
+        base.OnDestroy();
     }
 
     // ---- Shared visual helpers ----
 
     protected static void SpawnFogParticles(Vector3 center, float radius, Color tint)
     {
+        var dustBig = DustBigPrefab;
+        if (dustBig == null)
+        {
+            TrapLibPlugin.Log?.LogWarning("[ExplosiveTrapBase] Failed to load resource: DustBig");
+            return;
+        }
+
         for (int i = 0; i < 12; i++)
         {
             float angle = i * 30f * Mathf.Deg2Rad;
             var offset = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
-            var go = Object.Instantiate(Resources.Load<GameObject>("DustBig"), center + offset, Quaternion.identity);
+            var go = Object.Instantiate(dustBig, center + offset, Quaternion.identity);
             if (go != null)
             {
                 var sr = go.GetComponent<SpriteRenderer>();
@@ -237,7 +316,8 @@ public abstract class ExplosiveTrapBase : TrapBase
                 Object.Destroy(go, 5f);
             }
         }
-        var burst = Object.Instantiate(Resources.Load<GameObject>("DustBig"), center, Quaternion.identity);
+
+        var burst = Object.Instantiate(dustBig, center, Quaternion.identity);
         if (burst != null)
         {
             var sr = burst.GetComponent<SpriteRenderer>();

@@ -118,6 +118,7 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `InGroundChance` | `float` | `0` | 半埋入地面的偏移量（世界单位），传给 `DistributeEntities` 的 `spawnYOffset` |
 | `Sounds` | `(string hit, string destroy)` | `("scrapmetal", "containerBreak")` | 受击音效 ID / 破坏音效 ID。TrapLib 自动注册，无需手动操作 |
 | `Drops` | `ItemDrop[]` | 空数组 | 通过 `itemsDropOnDestroy` 掉落的物品 |
+| `DoNotBreakOnGroundDestroyed` | `bool` | `false` | 为 true 时，下方方块被破坏不会连带摧毁陷阱。适用于悬浮/吸附类陷阱 |
 
 ### `ExplosiveTrapConfig` : `TrapConfig`
 
@@ -141,6 +142,7 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `BlastRadius` | `float` | `0` | 爆炸瞬间冲击波半径。>0 时对范围内 Body 调用 `ApplyBlastDebuff`（服务端对所有玩家，客户端对本地玩家提供即时反馈）。0=禁用 |
 | `OnBurst` | `Action<Vector3, ExplosiveTrapConfig>` | `null` | 爆炸瞬间额外一次性效果（在 `BlastRadius` 处理之后）。**仅服务端/单机执行** |
 | `OnDestroyedWithoutDetonation` | `Action<ExplosiveTrapBase, Vector3>` | `null` | 被打爆但未引爆时回调。参数 (trap, center)。仅服务端/单机执行。用途：核泄漏等 |
+| `NoClientFallback` | `bool` | `false` | 为 true 时，即使安装 KrokMP 也跳过客户端爆炸回退效果（粒子、音效、冲击痕迹）。当 KrokMP 可靠同步该陷阱的 `CreateExplosion` 时使用，避免双份效果 |
 
 ### `ContactTrapConfig` : `TrapConfig`
 
@@ -198,7 +200,7 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `ApplyEffect(Body, dist)` | **abstract**——每秒每体。服务端执行 |
 | `OnBodyEnter(Body)` | virtual——Body 进入区域时调用一次。服务端执行 |
 | `OnBodyExit(Body)` | virtual——Body 离开区域时调用一次。服务端执行 |
-| `OnExpiring()` | virtual——进入淡出期时调用一次（`_age > duration - fadeTime`）。服务端执行 |
+| `OnExpiring()` | virtual——进入淡出期时每帧调用。双端执行 |
 | `OnTick()` | virtual——每 `tickInterval` 秒调用一次。双端执行。用途：粒子、音效 |
 | `Create<T>(name, center, cfg)` | **static**——创建 zone GameObject（设 Ground 层、触发器、迷雾精灵、radius/duration/fogColor）。返回 `T` 以便设置额外参数 |
 
@@ -228,7 +230,7 @@ class MyDebuff : TimedDestroy
 | `CreateZone` / `SpawnFogParticles` | ✓ | ✓ (随本地引爆执行，仅视觉) |
 | `TrapZone.ApplyEffect` | ✓ | — |
 | `TrapZone.OnBodyEnter/Exit` | ✓ | — |
-| `TrapZone.OnExpiring` | ✓ | — |
+| `TrapZone.OnExpiring` | ✓ | ✓ |
 | `TrapZone.OnTick` | ✓ | ✓ |
 | `OnBurst` | ✓ | — |
 | `ApplyBlastDebuff` | ✓ 全部玩家 | ✓ 仅本地玩家 (即时反馈) |
@@ -240,7 +242,7 @@ class MyDebuff : TimedDestroy
 
 - **伤害/状态修改放 `OnBurst`、`ApplyBlastDebuff` 或 `ApplyEffect`**——这些自动限制服务端
 - **视觉效果放 `OnTriggered`、`OnFuseUpdate`、`OnTick`、`OnContactTriggered`**——双端可见
-- **`OnExpiring` 仅服务端执行，不要在其中放客户端视觉效果**
+- **`OnExpiring` 双端执行——可用于客户端视觉淡出效果**
 - **勿在服务端独占回调中添加 MonoBehaviour 组件**——组件不会自动同步到客户端
 
 ---
@@ -294,7 +296,7 @@ var sprite = SpriteLoader.FromFileAutoCrop("path.png", ppu: 8f, pivot: new Vecto
 
 ### `TrapSounds` — 音效
 
-音效通过 `TrapConfig.Sounds` 设置，`RegisterSounds()` 在 TrapLib 启动时自动注册，无需手动操作。
+音效通过 `TrapConfig.Sounds` 设置。音效地图在首次访问时从 `TrapRegistry` 延迟加载——无需手动操作。调用 `TrapSounds.Refresh()` 可在延迟注册后强制重新加载。
 
 ---
 

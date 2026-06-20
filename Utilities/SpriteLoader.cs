@@ -11,6 +11,8 @@ namespace TrapLib.Utilities;
 public static class SpriteLoader
 {
     private static readonly Dictionary<string, Sprite> Cache = new Dictionary<string, Sprite>();
+    private static readonly Queue<string> CacheOrder = new Queue<string>();
+    private const int MaxCacheSize = 128;
 
     // ---- Basic loading ----
 
@@ -37,7 +39,15 @@ public static class SpriteLoader
         if (tex == null) return null;
 
         var sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), pivot, ppu);
+
+        if (Cache.Count >= MaxCacheSize)
+        {
+            var oldest = CacheOrder.Dequeue();
+            Cache.Remove(oldest);
+        }
+
         Cache[key] = sprite;
+        CacheOrder.Enqueue(key);
         return sprite;
     }
 
@@ -56,7 +66,15 @@ public static class SpriteLoader
 
         var rect = GetContentRect(tex, alphaThreshold) ?? new Rect(0, 0, tex.width, tex.height);
         var sprite = Sprite.Create(tex, rect, pivot, ppu);
+
+        if (Cache.Count >= MaxCacheSize)
+        {
+            var oldest = CacheOrder.Dequeue();
+            Cache.Remove(oldest);
+        }
+
         Cache[key] = sprite;
+        CacheOrder.Enqueue(key);
         return sprite;
     }
 
@@ -147,4 +165,19 @@ public static class SpriteLoader
             (0.5f - pivot.x) * worldSize.x / scale,
             (0.5f - pivot.y) * worldSize.y / scale);
     }
+
+    /// <summary>
+    /// Clear all cached sprites. Call this when switching worlds or unloading mods
+    /// to prevent memory leaks.
+    /// </summary>
+    public static void ClearCache()
+    {
+        Cache.Clear();
+        CacheOrder.Clear();
+    }
+
+    /// <summary>
+    /// Get the current number of cached sprites (for debugging).
+    /// </summary>
+    public static int CacheCount => Cache.Count;
 }

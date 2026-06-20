@@ -53,8 +53,8 @@ public abstract class ContactTrapBase : TrapBase
         // Server-authoritative effect
         if (MPSync.IsServerOrSP)
         {
-            if (ContactConfig.OnContact != null && ContactConfig.OnContact(limb, ContactConfig))
-                _cooldown = ContactConfig.Cooldown;
+            ContactConfig.OnContact?.Invoke(limb, ContactConfig);
+            _cooldown = ContactConfig.Cooldown;
         }
         else
         {
@@ -62,10 +62,11 @@ public abstract class ContactTrapBase : TrapBase
         }
     }
 
-    protected virtual void OnDestroy()
+    protected override void OnDestroy()
     {
-        if (!_destroyed) return;
-        if (!MPSync.IsServerOrSP) return;
+        if (!_destroyed) { base.OnDestroy(); return; }
+        if (!MPSync.IsServerOrSP) { base.OnDestroy(); return; }
         ContactConfig.OnDestroyed?.Invoke(transform.position, ContactConfig);
+        base.OnDestroy();
     }
 }

@@ -10,7 +10,7 @@ public static class TrapRegistry
     internal static readonly Dictionary<string, (TrapConfig config, Type type)> Entries
         = new Dictionary<string, (TrapConfig, Type)>();
 
-    /// <summary>Prefab templates (one per registered type), keyed by type name.</summary>
+    /// <summary>Prefab templates (one per registered type), keyed by trap config ID.</summary>
     internal static readonly Dictionary<string, GameObject> Prefabs
         = new Dictionary<string, GameObject>();
 
@@ -64,11 +64,12 @@ public static class TrapRegistry
 
     internal static GameObject GetOrCreatePrefab(Type type, TrapConfig config)
     {
-        var key = type.Name;
+        // Use config ID as key to avoid conflicts between different namespaces with same class name
+        var key = config.Id;
         if (Prefabs.TryGetValue(key, out var existing))
             return existing;
 
-        var go = new GameObject(key);
+        var go = new GameObject(type.Name);
         UnityEngine.Object.DontDestroyOnLoad(go);
         go.AddComponent(type);
 

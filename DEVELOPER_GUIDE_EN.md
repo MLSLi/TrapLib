@@ -115,12 +115,14 @@ Or via console:
 | `InGroundChance` | `float` | `0` | Embed offset (world units), passed as `spawnYOffset` to `DistributeEntities` |
 | `Sounds` | `(string hit, string destroy)` | `("scrapmetal", "containerBreak")` | Hit / destroy sound IDs. Auto-registered by TrapLib |
 | `Drops` | `ItemDrop[]` | empty | Items dropped via `itemsDropOnDestroy` |
+| `DoNotBreakOnGroundDestroyed` | `bool` | `false` | When true, the trap is NOT destroyed when the block beneath it is broken. Use for floating/hovering traps |
 
 ### `ExplosiveTrapConfig : TrapConfig`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `ExplosionRange` | `float` | `25` | Explosion radius. TrapLib writes this into `ExplosionParams.range` — **do not set `range` manually** |
+| `ZoneRadius` | `float` | `0` | Persistent zone radius. ≤0 falls back to `ExplosionRange`. Decoupled from explosion radius — large fog zone + small explosion damage |
 | `ExplosionParams` | `ExplosionParams` | required | Explosion parameters. **Note: `range` and `position` are auto-filled by TrapLib.** Only set damage, chances, velocity, and sound |
 | `FuseTime` | `float` | `0.5` | Fuse seconds. `0` = instant (no pressed state, no fuse sound) |
 | `FuseSound` | `string` | `"mine"` | Sound played when fuse is armed |
@@ -135,6 +137,7 @@ Or via console:
 | `BlastRadius` | `float` | `0` | Direct-hit radius at detonation. > 0 auto-scans for Body. Server-only |
 | `OnBurst` | `Action<Vector3, ExplosiveTrapConfig>` | `null` | One-shot effect at detonation (after BlastRadius). **Server-only** |
 | `OnDestroyedWithoutDetonation` | `Action<ExplosiveTrapBase, Vector3>` | `null` | Called when destroyed by damage without triggering. Server-only |
+| `NoClientFallback` | `bool` | `false` | When true, skips the client-side explosion fallback (particles, sound, blastmark) even with KrokMP. Use when KrokMP reliably syncs `CreateExplosion` for this trap type, to avoid double effects |
 
 ### `ContactTrapConfig : TrapConfig`
 
@@ -192,7 +195,7 @@ Or via console:
 | `ApplyEffect(Body, dist)` | **abstract** — per body per second. Server-only |
 | `OnBodyEnter(Body)` | virtual — called once when Body enters. Server-only |
 | `OnBodyExit(Body)` | virtual — called once when Body exits. Server-only |
-| `OnExpiring()` | virtual — called once when entering fade-out. Server-only |
+| `OnExpiring()` | virtual — called every frame during the fade-out period. Everyone |
 | `OnTick()` | virtual — called every `tickInterval` seconds. Both sides. Use for particles, SFX |
 
 ---
@@ -209,7 +212,7 @@ Or via console:
 | `CreateZone` / `SpawnFogParticles` | ✓ | ✓ (visual only) |
 | `TrapZone.ApplyEffect` | ✓ | — |
 | `TrapZone.OnBodyEnter/Exit` | ✓ | — |
-| `TrapZone.OnExpiring` | ✓ | — |
+| `TrapZone.OnExpiring` | ✓ | ✓ |
 | `TrapZone.OnTick` | ✓ | ✓ |
 | `OnBurst` / `ApplyBlastDebuff` | ✓ | — |
 | `OnDestroyedWithoutDetonation` | ✓ | — |
@@ -219,7 +222,7 @@ Key rules:
 
 - **Damage / state changes go in `OnBurst`, `ApplyBlastDebuff`, or `ApplyEffect`** — auto-limited to server
 - **Visual effects go in `OnTriggered`, `OnFuseUpdate`, `OnTick`, `OnContactTriggered`** — visible on both sides
-- **`OnExpiring` is server-only — do not put client visual effects there**
+- **`OnExpiring` runs on both sides — use for client visual fade effects**
 - **Do not add MonoBehaviour components in server-only callbacks** — components do not replicate
 
 ---
@@ -273,7 +276,7 @@ Helper methods:
 
 ### `TrapSounds`
 
-Sounds are configured via `TrapConfig.Sounds` and auto-registered by `RegisterSounds()` at TrapLib startup. No manual setup needed.
+Sounds are configured via `TrapConfig.Sounds`. The sound map is lazily populated from `TrapRegistry` on first access — no manual setup needed. Call `TrapSounds.Refresh()` to force re-population after late registrations.
 
 ---
 

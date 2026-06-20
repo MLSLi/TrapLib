@@ -11,6 +11,29 @@ namespace TrapLib.Patches;
 /// </summary>
 internal static class BuildingEntityPatch
 {
+    private static GameObject _cachedDustBig;
+    private static GameObject _cachedBuildingBreakParticle;
+
+    private static GameObject DustBigPrefab
+    {
+        get
+        {
+            if (_cachedDustBig == null)
+                _cachedDustBig = Resources.Load<GameObject>("DustBig");
+            return _cachedDustBig;
+        }
+    }
+
+    private static GameObject BuildingBreakParticlePrefab
+    {
+        get
+        {
+            if (_cachedBuildingBreakParticle == null)
+                _cachedBuildingBreakParticle = Resources.Load("BuildingBreakParticle") as GameObject;
+            return _cachedBuildingBreakParticle;
+        }
+    }
+
     /// <summary>Apply the patch. Safe to call regardless of RshLib status.</summary>
     internal static void Apply(Harmony harmony)
     {
@@ -36,19 +59,42 @@ internal static class BuildingEntityPatch
 
     private static bool Prefix(BuildingEntity __instance)
     {
-        // Only override destruction for TrapLib traps — let everything else run original Update
-        if (!__instance.TryGetComponent<TrapBase>(out _))
+        // Fast-path: avoid expensive TryGetComponent every frame.
+        if (!TrapBase.TrapBuildings.Contains(__instance))
             return true;
 
-        // --- rigidbody optimisation ---
+        // --- rigidbody optimisation (multiplayer-aware) ---
+        // Note: Returning false here skips the original Update, which also skips
+        // KrokMP's BuildingEntity_Update_MultiplayerPatch transpiler. We replicate
+        // its multiplayer-aware chunk visibility logic directly.
         if (__instance.TryGetComponent<Rigidbody2D>(out var rb) && !__instance.ignoreBodyOptimize)
         {
             var world = WorldGeneration.world;
-            rb.bodyType = (!world.worldExists
-                || !world.GetClosestChunkRenderer(world.WorldToBlockPos(__instance.transform.position)).enabled
-                || !(Time.timeScale <= 5f))
-                ? RigidbodyType2D.Static
-                : RigidbodyType2D.Dynamic;
+            bool shouldDynamic = false;
+            if (world.worldExists)
+            {
+                var worldPos = (Vector2)__instance.transform.position;
+                // In multiplayer, check if ANY player can see this chunk
+                if (TrapLibPlugin.KrokMpEnabled)
+                {
+                    foreach (var body in MPSync.AllPlayerBodies)
+                    {
+                        if (body == null) continue;
+                        float dist = Vector2.Distance(worldPos, body.transform.position);
+                        if (dist < 120f) // chunk render distance ~120 units
+                        {
+                            shouldDynamic = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    shouldDynamic = world.GetClosestChunkRenderer(
+                        world.WorldToBlockPos(__instance.transform.position)).enabled;
+                }
+            }
+            rb.bodyType = shouldDynamic ? RigidbodyType2D.Dynamic : RigidbodyType2D.Static;
         }
 
         if (!(__instance.health < 0.5f))
@@ -59,17 +105,25 @@ internal static class BuildingEntityPatch
         if (MPSync.IsClient)
         {
             SpawnDestructionParticles(__instance);
+            var dustPrefab = DustBigPrefab;
+            if (dustPrefab != null)
+                Object.Instantiate(dustPrefab, __instance.transform.position, Quaternion.identity);
             if (__instance.TryGetComponent<TrapBase>(out var t))
                 t.MarkDestroyed();
-            Object.Destroy(__instance.gameObject);
+            // Deferred destroy: gives KrokMP ~1s to finish any pending sync
+            // packets for this object before it's removed from the scene.
+            Object.Destroy(__instance.gameObject, 1f);
             return false;
         }
 
         // --- destruction particles ---
         SpawnDestructionParticles(__instance);
 
-        Object.Instantiate(Resources.Load<GameObject>("DustBig"),
-            __instance.transform.position, Quaternion.identity);
+        var dustBig = DustBigPrefab;
+        if (dustBig != null)
+            Object.Instantiate(dustBig, __instance.transform.position, Quaternion.identity);
+        else
+            TrapLibPlugin.Log?.LogWarning("[BuildingEntityPatch] Failed to load resource: DustBig");
 
         if (__instance.animal)
             __instance.gameObject.SendMessage("AnimalDeath");
@@ -114,8 +168,11 @@ internal static class BuildingEntityPatch
     private static void SpawnDropItem(string id, Vector3 pos, float condition, bool fresh)
     {
         var go = Utils.Create(id, pos, Random.Range(0f, 360f));
-        go.GetComponent<Rigidbody2D>().velocity = new Vector2(Random.Range(-7f, 7f), Random.Range(-7f, 7f));
-        go.GetComponent<Item>().SetCondition(condition);
+        if (go == null) return;
+        var rb = go.GetComponent<Rigidbody2D>();
+        if (rb != null) rb.velocity = new Vector2(Random.Range(-7f, 7f), Random.Range(-7f, 7f));
+        var item = go.GetComponent<Item>();
+        if (item != null) item.SetCondition(condition);
         if (fresh) go.AddComponent<FreshItemDrop>();
     }
 
@@ -124,14 +181,21 @@ internal static class BuildingEntityPatch
     {
         if (be.TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
         {
-            var particleObj = Object.Instantiate(Resources.Load("BuildingBreakParticle"),
-                be.transform.position, be.transform.rotation);
-            if (particleObj is GameObject go)
+            var particlePrefab = BuildingBreakParticlePrefab;
+            if (particlePrefab != null)
             {
-                var shape = go.GetComponent<ParticleSystem>().shape;
-                shape.texture = sr.sprite.texture;
-                shape.sprite = sr.sprite;
-                go.GetComponent<ParticleSystem>().Play();
+                var particleObj = Object.Instantiate(particlePrefab, be.transform.position, be.transform.rotation);
+                if (particleObj is GameObject go)
+                {
+                    var shape = go.GetComponent<ParticleSystem>().shape;
+                    shape.texture = sr.sprite.texture;
+                    shape.sprite = sr.sprite;
+                    go.GetComponent<ParticleSystem>().Play();
+                }
+            }
+            else
+            {
+                TrapLibPlugin.Log?.LogWarning("[BuildingEntityPatch] Failed to load resource: BuildingBreakParticle");
             }
         }
     }

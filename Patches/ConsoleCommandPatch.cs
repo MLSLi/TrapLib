@@ -1,5 +1,6 @@
 using System;
 using HarmonyLib;
+using TrapLib.MP;
 using UnityEngine;
 
 namespace TrapLib.Patches;
@@ -32,6 +33,11 @@ internal static class ConsoleCommandPatch
         {
             if (args.Length >= 2 && TrapRegistry.Entries.ContainsKey(args[1]))
             {
+                if (MPSync.IsClient)
+                {
+                    TrapLibPlugin.Log?.LogWarning("[ConsoleCommandPatch] /spawn trap blocked on MP client — only server/host can spawn traps");
+                    return;
+                }
                 var pos = GetSpawnPosition(args);
                 TrapRegistry.Spawn(args[1], pos);
                 return;
@@ -73,6 +79,11 @@ internal static class ConsoleCommandPatch
 
     private static Vector3 CursorWorldPos()
     {
+        if (Camera.main == null)
+        {
+            TrapLibPlugin.Log?.LogWarning("[ConsoleCommandPatch] Camera.main is null, cannot get cursor position");
+            return Vector3.zero;
+        }
         var wp = Camera.main.ScreenToWorldPoint(UnityEngine.Input.mousePosition);
         return new Vector3(wp.x, wp.y, 0f);
     }
