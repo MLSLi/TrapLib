@@ -5,7 +5,7 @@
     <RootNamespace>TrapLib</RootNamespace>
     <AssemblyName>TrapLib</AssemblyName>
     <Description>Shared library for custom trap mods — handles prefab creation, world-gen integration, zone effects, and common utilities.</Description>
-    <Version>1.0.0</Version>
+    <Version>1.1.1</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <OutputType>Library</OutputType>

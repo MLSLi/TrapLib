@@ -55,6 +55,7 @@ TrapRegistry.Register<MyTrap>(new ExplosiveTrapConfig
     Sprite = sprite,
     Health = 300f,
     MinBiomeDepth = 1,
+    MaxBiomeDepth = 0, // 0 = no upper limit
     SpawnRateMin = 0.15f,
     SpawnRateMax = 0.20f,
     ExplosionRange = 25f,

@@ -35,6 +35,7 @@ internal static class TrapSpawner
             var config = kv.Value.config;
             var type = kv.Value.type;
             if (__instance.biomeDepth < config.MinBiomeDepth) continue;
+            if (config.MaxBiomeDepth > 0 && __instance.biomeDepth > config.MaxBiomeDepth) continue;
 
             float min = config.SpawnRateMin * __instance.totalTrapRarity;
             float max = config.SpawnRateMax * __instance.totalTrapRarity;

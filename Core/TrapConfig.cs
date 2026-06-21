@@ -64,6 +64,9 @@ public class TrapConfig
     /// <summary>Minimum biome depth (0-based) for this trap to appear.</summary>
     public int MinBiomeDepth;
 
+    /// <summary>Maximum biome depth (0-based) for this trap to appear. 0 = no upper limit.</summary>
+    public int MaxBiomeDepth;
+
     /// <summary>Fraction of totalTrapRarity — lower bound.</summary>
     public float SpawnRateMin;
 
