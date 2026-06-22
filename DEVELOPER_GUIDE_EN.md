@@ -22,7 +22,8 @@ TrapLib
 │  ├─ ExplosiveTrapBase ← collision/custom trigger → fuse → explosion → zone → particles
 │  └─ ContactTrapBase   ← limb contact + cooldown + callbacks
 │
-└─ TrapZone             ← persistent zone: fog sprite, collision, per-second effects
+├─ TrapZone             ← persistent zone: fog sprite, collision, per-second effects
+└─ Utilities            ← SpriteLoader, TrapPlacement, Attenuation, TrapSounds
 ```
 
 ## Quick Start
@@ -30,7 +31,8 @@ TrapLib
 ### 1. Prepare a sprite
 
 ```csharp
-var sprite = SpriteLoader.FromFile("path/to/my_trap.png", ppu: 8f);
+var sprite = SpriteLoader.RequireFromFileAutoCrop("path/to/my_trap.png", ppu: 8f,
+    pivot: new Vector2(0.5f, 0f));
 ```
 
 ### 2. Create a trap class
@@ -58,6 +60,7 @@ TrapRegistry.Register<MyTrap>(new ExplosiveTrapConfig
     MaxBiomeDepth = 0, // 0 = no upper limit
     SpawnRateMin = 0.15f,
     SpawnRateMax = 0.20f,
+    SpawnYOffset = 0.6f,
     ExplosionRange = 25f,
     ExplosionParams = new ExplosionParams
     {
@@ -106,14 +109,16 @@ Or via console:
 | `ObjectScale` | `float` | `1` | GameObject localScale |
 | `Pivot` | `Vector2` | `(0.5, 0)` | Normalised sprite contact point. `(0.5,0)`=bottom-centre (floor), `(0.5,1)`=top (ceiling), `(0.5,0.5)`=centre, `(0,0.5)`=left edge (wall) |
 | `SurfaceOffset` | `float` | `0` | Extra world-space offset after surface snap |
-| `CustomPlacement` | `Func<Vector3, SpriteRenderer, Vector3>` | `null` | Full placement override. Returns final world position. **Note: when set, you must set `GameObject.layer` to Ground inside the callback, or hover detection breaks** |
+| `CustomPlacement` | `Func<Vector3, SpriteRenderer, Vector3>` | `null` | Full placement override. Returns final world position. TrapLib restores the GameObject layer after the callback so hover detection still works |
 | `Health` | `float` | `400` | Hit points |
 | `ColliderSize` | `Vector2` | `(2, 1)` | BoxCollider2D size |
 | `Metallic` | `bool` | `true` | Metallic surface (affects footstep sounds) |
 | `MinBiomeDepth` | `int` | `0` | Minimum biome depth for spawning (0-based) |
 | `SpawnRateMin` | `float` | required | Lower bound fraction of `totalTrapRarity` |
 | `SpawnRateMax` | `float` | required | Upper bound fraction of `totalTrapRarity` |
-| `InGroundChance` | `float` | `0` | Embed offset (world units), passed as `spawnYOffset` to `DistributeEntities` |
+| `SpawnYOffset` | `float` | `0` | World-space offset passed as `spawnYOffset` to `DistributeEntities` |
+| `SpawnYOffsetDeviation` | `float` | `0` | Random deviation around `SpawnYOffset` |
+| `SpawnInGround` | `bool` | `false` | Whether `DistributeEntities` may start placement from inside ground blocks |
 | `Sounds` | `(string hit, string destroy)` | `("scrapmetal", "containerBreak")` | Hit / destroy sound IDs. Auto-registered by TrapLib |
 | `Drops` | `ItemDrop[]` | empty | Items dropped via `itemsDropOnDestroy` |
 | `DoNotBreakOnGroundDestroyed` | `bool` | `false` | When true, the trap is NOT destroyed when the block beneath it is broken. Use for floating/hovering traps |
@@ -198,6 +203,8 @@ Or via console:
 | `OnBodyExit(Body)` | virtual — called once when Body exits. Server-only |
 | `OnExpiring()` | virtual — called every frame during the fade-out period. Everyone |
 | `OnTick()` | virtual — called every `tickInterval` seconds. Both sides. Use for particles, SFX |
+| `Create<T>(name, center, cfg)` | **static** — creates a zone GameObject and returns the zone component |
+| `Create<T>(name, center, cfg, configure)` | **static** — same as above, then invokes `configure(zone)` and returns the GameObject |
 
 ---
 
@@ -258,18 +265,35 @@ var sprite = SpriteLoader.FromFile("path.png", ppu: 8f, pivot: new Vector2(0.5f,
 
 // Auto-crop transparent borders
 var sprite = SpriteLoader.FromFileAutoCrop("path.png", ppu: 8f, pivot: new Vector2(0.5f, 0f));
+
+// Required resources: throws FileNotFoundException instead of returning null
+var sprite = SpriteLoader.RequireFromFileAutoCrop("path.png", ppu: 8f, pivot: new Vector2(0.5f, 0f));
+var tex = SpriteLoader.RequireTexture("path.png");
 ```
 
-All methods are cached. Returns null on failure, logs a warning.
+All sprite-loading methods are cached. `From*` methods return null on failure and log a warning; `Require*` methods throw `FileNotFoundException` for required mod assets.
 
 Helper methods:
 
 | Method | Description |
 |--------|-------------|
 | `LoadTexture(path)` | Load PNG as point-filtered Texture2D |
+| `RequireTexture(path)` | Load PNG or throw `FileNotFoundException` |
 | `GetContentRect(tex, alphaThreshold)` | Find minimal bounding rect of non-transparent pixels |
 | `GetWorldSize(sprite, scale)` | Return world-space size of a sprite |
 | `FitColliderToSprite(col, sprite, scale, pivot, wPad, hPad)` | Fit a BoxCollider2D to sprite content |
+
+### `TrapPlacement`
+
+Reusable helpers for custom placement callbacks:
+
+| Method | Description |
+|--------|-------------|
+| `WithIgnoredSelfLayer(go, action)` | Temporarily moves `go` to `Ignore Raycast`, runs `action`, then restores the original layer |
+| `TryFindNearestSurface(pos, mask, out hit, ...)` | Raycasts left/right/up/down, then falls back to a long downward cast |
+| `TryFindFloorThenNearestSurface(pos, mask, out hit, ...)` | Prefers floor placement, then falls back to nearest surface |
+| `OffsetFromSurface(hit, offset, z)` | Converts a surface hit plus normal offset to a world position |
+| `VerticalSpriteHalfHeight(sr, scale)` | Computes half the scaled sprite height for upright placement |
 
 ### `FogSpriteCache`
 
@@ -318,16 +342,7 @@ public class MyModPlugin : BaseUnityPlugin
                 velocity = 2.5f,
                 sound = "mine",
             },
-            CreateZone = (center, cfg) =>
-            {
-                var go = new GameObject("GasZone");
-                go.transform.position = center;
-                var zone = go.AddComponent<GasZone>();
-                zone.radius = cfg.ExplosionRange;
-                zone.duration = cfg.ZoneDuration;
-                zone.fogColor = cfg.FogColor;
-                return go;
-            },
+            CreateZone = (center, cfg) => TrapZone.Create<GasZone>("GasZone", center, cfg),
             OnBurst = (center, cfg) =>
             {
                 float blastSqr = 5f * 5f;

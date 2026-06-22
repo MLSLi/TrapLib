@@ -164,6 +164,7 @@ public abstract class TrapBase : MonoBehaviour
         if (Config?.CustomPlacement != null)
         {
             pos = Config.CustomPlacement(pos, _sr);
+            gameObject.layer = savedLayer == 0 ? LayerMask.NameToLayer("Ground") : savedLayer;
         }
         else
         {

@@ -73,8 +73,14 @@ public class TrapConfig
     /// <summary>Fraction of totalTrapRarity — upper bound.</summary>
     public float SpawnRateMax;
 
-    /// <summary>World-space offset to embed the trap into the surface (units). Passed as spawnYOffset to DistributeEntities.</summary>
-    public float InGroundChance;
+    /// <summary>World-space offset from the hit surface when distributing entities.</summary>
+    public float SpawnYOffset;
+
+    /// <summary>Random deviation applied around <see cref="SpawnYOffset"/>.</summary>
+    public float SpawnYOffsetDeviation;
+
+    /// <summary>Whether DistributeEntities may start placement from inside ground blocks.</summary>
+    public bool SpawnInGround;
 
     // ---- Destruction ----
 

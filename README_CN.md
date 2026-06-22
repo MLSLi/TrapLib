@@ -9,6 +9,8 @@
 - **接触陷阱** — 肢体触发 + 冷却 + 回调
 - **持续区域** — 半径范围效果，支持淡出、进出事件、定时回调
 - **多人联机** — 伤害/状态服务端权威，视觉效果双端执行
+- **放置工具** — 复用表面射线检测、自身层级忽略、自定义放置辅助
+- **贴图加载工具** — 缓存式可选加载，以及用于必需资源的 `Require*` 加载器
 - **控制台命令** — `/spawn <id> [cursor|player|random|x,y]` 快速测试
 - **中英双语** — 通过 `FullNameCn` / `DescriptionCn` 支持中文名称和描述
 
@@ -23,11 +25,12 @@ TrapRegistry.Register<MyTrap>(new ExplosiveTrapConfig
     FullNameCn = "我的陷阱",
     Description = "A custom explosive trap.",
     DescriptionCn = "一个自定义爆炸陷阱。",
-    Sprite = SpriteLoader.FromFileAutoCrop("path/to/sprite.png", ppu: 8f),
+    Sprite = SpriteLoader.RequireFromFileAutoCrop("path/to/sprite.png", ppu: 8f, pivot: new Vector2(0.5f, 0f)),
     Health = 300f,
     MinBiomeDepth = 1,
     SpawnRateMin = 0.15f,
     SpawnRateMax = 0.20f,
+    SpawnYOffset = 0.6f,
     ExplosionRange = 25f,
     ExplosionParams = new ExplosionParams
     {

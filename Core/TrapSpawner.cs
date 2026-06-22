@@ -47,8 +47,8 @@ internal static class TrapSpawner
             var resetMethod = type.GetMethod("ResetSpawnCount", methodFlags);
             resetMethod?.Invoke(null, null);
 
-            __instance.DistributeEntities(prefab, min, max, config.InGroundChance, 0f, 0f,
-                false, false, null, true);
+            __instance.DistributeEntities(prefab, min, max, config.SpawnYOffset, 0f,
+                config.SpawnYOffsetDeviation, config.SpawnInGround, false, null, true);
 
             var fieldFlags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.FlattenHierarchy;
             var countField = type.GetField("SpawnCount", fieldFlags);

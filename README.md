@@ -9,6 +9,8 @@ A BepInEx library for [Casualties Unknown](https://store.steampowered.com/app/45
 - **Contact traps** — limb-based contact with cooldowns and callbacks
 - **Persistent zones** — radius-based area effects with fade-out, body enter/exit events, and tick timers
 - **Multiplayer-aware** — server-authoritative damage/state; visual effects run on both sides
+- **Placement utilities** — reusable surface raycasts, self-layer masking, and custom placement helpers
+- **Sprite loading helpers** — cached optional loaders plus `Require*` loaders for fail-fast resources
 - **Console spawn command** — `/spawn <id> [cursor|player|random|x,y]` for testing
 - **Locale support** — English and Chinese display names/descriptions via `FullNameCn` / `DescriptionCn`
 
@@ -21,11 +23,12 @@ TrapRegistry.Register<MyTrap>(new ExplosiveTrapConfig
     Id = "mytrap",
     FullName = "My Trap",
     Description = "A custom explosive trap.",
-    Sprite = SpriteLoader.FromFileAutoCrop("path/to/sprite.png", ppu: 8f),
+    Sprite = SpriteLoader.RequireFromFileAutoCrop("path/to/sprite.png", ppu: 8f, pivot: new Vector2(0.5f, 0f)),
     Health = 300f,
     MinBiomeDepth = 1,
     SpawnRateMin = 0.15f,
     SpawnRateMax = 0.20f,
+    SpawnYOffset = 0.6f,
     ExplosionRange = 25f,
     ExplosionParams = new ExplosionParams
     {

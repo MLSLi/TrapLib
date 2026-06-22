@@ -5,7 +5,7 @@ using TrapLib.Patches;
 
 namespace TrapLib;
 
-[BepInPlugin("com.vertigo.traplib", "TrapLib", "1.1.1")]
+[BepInPlugin("com.vertigo.traplib", "TrapLib", "1.1.2")]
 [BepInDependency("com.rushellxyz.rshlib", BepInDependency.DependencyFlags.SoftDependency)]
 public class TrapLibPlugin : BaseUnityPlugin
 {
@@ -22,7 +22,7 @@ public class TrapLibPlugin : BaseUnityPlugin
         RshLibInstalled = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("com.rushellxyz.rshlib");
         MPSync.Refresh();
 
-        Log.LogInfo($"TrapLib 1.1.1 — KrokMP:{KrokMpEnabled} RshLib:{RshLibInstalled}");
+        Log.LogInfo($"TrapLib 1.1.2 — KrokMP:{KrokMpEnabled} RshLib:{RshLibInstalled}");
 
         var harmony = new Harmony("com.vertigo.traplib");
         harmony.PatchAll();

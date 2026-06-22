@@ -78,6 +78,14 @@ public static class SpriteLoader
         return sprite;
     }
 
+    public static Sprite RequireFromFileAutoCrop(string path, float ppu, Vector2 pivot, byte alphaThreshold = 1)
+    {
+        var sprite = FromFileAutoCrop(path, ppu, pivot, alphaThreshold);
+        if (sprite == null)
+            throw new FileNotFoundException($"Required trap sprite was not found: {path}", path);
+        return sprite;
+    }
+
     // ---- Texture loading ----
 
     /// <summary>
@@ -95,6 +103,14 @@ public static class SpriteLoader
         var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
         tex.LoadImage(bytes);
+        return tex;
+    }
+
+    public static Texture2D RequireTexture(string path)
+    {
+        var tex = LoadTexture(path);
+        if (tex == null)
+            throw new FileNotFoundException($"Required trap texture was not found: {path}", path);
         return tex;
     }
 

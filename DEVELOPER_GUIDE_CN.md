@@ -22,7 +22,8 @@ TrapLib
 │  ├─ ExplosiveTrapBase ← 碰撞/自定义触发 → 引信 → 爆炸 → 区域 → 粒子
 │  └─ ContactTrapBase   ← 肢体接触 + 冷却 + 回调
 │
-└─ TrapZone             ← 持续区域：迷雾贴图、碰撞检测、每秒效果
+├─ TrapZone             ← 持续区域：迷雾贴图、碰撞检测、每秒效果
+└─ Utilities            ← SpriteLoader、TrapPlacement、Attenuation、TrapSounds
 ```
 
 ## 快速开始
@@ -32,7 +33,8 @@ TrapLib
 用 `SpriteLoader.FromFile()` 或任意方式加载 `Sprite`：
 
 ```csharp
-var sprite = SpriteLoader.FromFile("path/to/my_trap.png", ppu: 8f);
+var sprite = SpriteLoader.RequireFromFileAutoCrop("path/to/my_trap.png", ppu: 8f,
+    pivot: new Vector2(0.5f, 0f));
 ```
 
 ### 2. 创建陷阱类
@@ -60,6 +62,7 @@ TrapRegistry.Register<MyTrap>(new ExplosiveTrapConfig
     MaxBiomeDepth = 0, // 0 = 无上限
     SpawnRateMin = 0.15f,
     SpawnRateMax = 0.20f,
+    SpawnYOffset = 0.6f,
     ExplosionRange = 25f,
     ExplosionParams = new ExplosionParams
     {
@@ -109,14 +112,16 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `ObjectScale` | `float` | `1` | GameObject 的 localScale |
 | `Pivot` | `Vector2` | `(0.5, 0)` | 贴图接触点。`(0.5,0)`=底部居中(地面陷阱)，`(0.5,1)`=顶部(天花板)，`(0.5,0.5)`=中心，`(0,0.5)`=左边缘(墙壁) |
 | `SurfaceOffset` | `float` | `0` | 贴地后的额外偏移（世界单位） |
-| `CustomPlacement` | `Func<Vector3, SpriteRenderer, Vector3>` | `null` | 完全接管摆放逻辑。返回最终世界坐标。不为 null 时跳过默认射线贴地。**注意：使用时需在回调内将 GameObject.layer 设为 Ground，否则鼠标悬停检测失效** |
+| `CustomPlacement` | `Func<Vector3, SpriteRenderer, Vector3>` | `null` | 完全接管摆放逻辑。返回最终世界坐标。不为 null 时跳过默认射线贴地。TrapLib 会在回调后恢复 GameObject layer，鼠标悬停检测仍可正常工作 |
 | `Health` | `float` | `400` | 生命值 |
 | `ColliderSize` | `Vector2` | `(2, 1)` | BoxCollider2D 尺寸 |
 | `Metallic` | `bool` | `true` | 是否金属（影响脚步声） |
 | `MinBiomeDepth` | `int` | `0` | 最低出现层级（0-based。0=第一层） |
 | `SpawnRateMin` | `float` | 必填 | 占 `totalTrapRarity` 的下限比例 |
 | `SpawnRateMax` | `float` | 必填 | 占 `totalTrapRarity` 的上限比例 |
-| `InGroundChance` | `float` | `0` | 半埋入地面的偏移量（世界单位），传给 `DistributeEntities` 的 `spawnYOffset` |
+| `SpawnYOffset` | `float` | `0` | 传给 `DistributeEntities` 的 `spawnYOffset`，表示沿表面法线的世界空间偏移 |
+| `SpawnYOffsetDeviation` | `float` | `0` | 围绕 `SpawnYOffset` 的随机偏移范围 |
+| `SpawnInGround` | `bool` | `false` | 是否允许 `DistributeEntities` 从地块内部开始寻找放置点 |
 | `Sounds` | `(string hit, string destroy)` | `("scrapmetal", "containerBreak")` | 受击音效 ID / 破坏音效 ID。TrapLib 自动注册，无需手动操作 |
 | `Drops` | `ItemDrop[]` | 空数组 | 通过 `itemsDropOnDestroy` 掉落的物品 |
 | `DoNotBreakOnGroundDestroyed` | `bool` | `false` | 为 true 时，下方方块被破坏不会连带摧毁陷阱。适用于悬浮/吸附类陷阱 |
@@ -204,6 +209,7 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `OnExpiring()` | virtual——进入淡出期时每帧调用。双端执行 |
 | `OnTick()` | virtual——每 `tickInterval` 秒调用一次。双端执行。用途：粒子、音效 |
 | `Create<T>(name, center, cfg)` | **static**——创建 zone GameObject（设 Ground 层、触发器、迷雾精灵、radius/duration/fogColor）。返回 `T` 以便设置额外参数 |
+| `Create<T>(name, center, cfg, configure)` | **static**——同上，然后执行 `configure(zone)` 并返回 GameObject |
 
 ### `TimedDestroy` (`TrapLib.Utilities`)
 
@@ -278,18 +284,35 @@ var sprite = SpriteLoader.FromFile("path.png", ppu: 8f, pivot: new Vector2(0.5f,
 
 // 自动裁切透明边框
 var sprite = SpriteLoader.FromFileAutoCrop("path.png", ppu: 8f, pivot: new Vector2(0.5f, 0f));
+
+// 必需资源：找不到时抛 FileNotFoundException，而不是返回 null
+var sprite = SpriteLoader.RequireFromFileAutoCrop("path.png", ppu: 8f, pivot: new Vector2(0.5f, 0f));
+var tex = SpriteLoader.RequireTexture("path.png");
 ```
 
-所有方法有缓存。失败时返回 null 并 LogWarning。
+所有贴图加载方法均有缓存。`From*` 方法失败时返回 null 并 LogWarning；`Require*` 方法用于必需资源，失败时抛 `FileNotFoundException`。
 
 辅助方法：
 
 | 方法 | 说明 |
 |------|------|
 | `LoadTexture(path)` | 加载 PNG 为点过滤 Texture2D |
+| `RequireTexture(path)` | 加载 PNG，失败时抛 `FileNotFoundException` |
 | `GetContentRect(tex, alphaThreshold)` | 查找非透明像素最小包围矩形 |
 | `GetWorldSize(sprite, scale)` | 返回 sprite 的世界空间尺寸 |
 | `FitColliderToSprite(col, sprite, scale, pivot, wPad, hPad)` | 调整 BoxCollider2D 匹配 sprite 内容 |
+
+### `TrapPlacement` — 自定义放置辅助
+
+用于 `CustomPlacement` 或重写 `Place()` 时复用射线检测和 layer 处理：
+
+| 方法 | 说明 |
+|------|------|
+| `WithIgnoredSelfLayer(go, action)` | 临时把 `go` 放到 `Ignore Raycast`，执行 `action` 后恢复原 layer |
+| `TryFindNearestSurface(pos, mask, out hit, ...)` | 向左/右/上/下射线寻找最近表面，失败后长距离向下兜底 |
+| `TryFindFloorThenNearestSurface(pos, mask, out hit, ...)` | 优先找地面，失败后找最近表面 |
+| `OffsetFromSurface(hit, offset, z)` | 根据命中点、法线偏移和 z 值计算最终世界坐标 |
+| `VerticalSpriteHalfHeight(sr, scale)` | 计算缩放后 sprite 的半高，用于直立物体贴地 |
 
 ### `FogSpriteCache` — 迷雾贴图
 
@@ -338,16 +361,7 @@ public class MyModPlugin : BaseUnityPlugin
                 velocity = 2.5f,
                 sound = "mine",
             },
-            CreateZone = (center, cfg) =>
-            {
-                var go = new GameObject("GasZone");
-                go.transform.position = center;
-                var zone = go.AddComponent<GasZone>();
-                zone.radius = cfg.ExplosionRange;
-                zone.duration = cfg.ZoneDuration;
-                zone.fogColor = cfg.FogColor;
-                return go;
-            },
+            CreateZone = (center, cfg) => TrapZone.Create<GasZone>("GasZone", center, cfg),
             OnBurst = (center, cfg) =>
             {
                 // 直接命中：5u 内每肢体 -8 皮肤, -4 肌肉, +15 疾病

@@ -156,4 +156,12 @@ public abstract class TrapZone : MonoBehaviour
         zone.fogColor = cfg.FogColor;
         return zone;
     }
+
+    public static GameObject Create<T>(string name, Vector3 center, ExplosiveTrapConfig cfg,
+        System.Action<T> configure) where T : TrapZone
+    {
+        var zone = Create<T>(name, center, cfg);
+        configure?.Invoke(zone);
+        return zone.gameObject;
+    }
 }

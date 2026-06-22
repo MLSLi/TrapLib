@@ -10,6 +10,8 @@ namespace TrapLib;
 /// </summary>
 public abstract class ExplosiveTrapBase : TrapBase
 {
+    private const float ArmedHealthSyncDelta = 0.123f;
+
     public float timeSincePressed;
     protected bool _pressed, _detonated;
 
@@ -64,6 +66,9 @@ public abstract class ExplosiveTrapBase : TrapBase
             Detonate();
             return;
         }
+
+        if (ShouldApplyRemoteArmedState())
+            Trigger();
 
         if (!_detonated)
             ExpConfig.CustomTrigger?.Invoke(this);
@@ -128,7 +133,9 @@ public abstract class ExplosiveTrapBase : TrapBase
         if (_pressed || _detonated) return;
         _pressed = true;
 
-        if (ExpConfig.FuseTime > 0f)
+        MarkArmedForClients();
+
+        if (ExpConfig.FuseTime > 0f && !string.IsNullOrEmpty(ExpConfig.FuseSound))
             Sound.Play(ExpConfig.FuseSound, transform.position);
 
         if (_sr != null && ExpConfig.PressedSprite != null)
@@ -138,6 +145,20 @@ public abstract class ExplosiveTrapBase : TrapBase
 
         if (ExpConfig.FuseTime <= 0f)
             Detonate();
+    }
+
+    private bool ShouldApplyRemoteArmedState()
+    {
+        // KrokMP syncs BuildingEntity.health for custom objects. The server nudges
+        // health slightly when arming the fuse so remote clients can start visuals.
+        return MPSync.IsClient && !_pressed && !_detonated && _build != null && Config != null
+            && _build.health >= 0.5f && _build.health < Config.Health - ArmedHealthSyncDelta * 0.5f;
+    }
+
+    private void MarkArmedForClients()
+    {
+        if (!MPSync.IsServerOrSP || _build == null || _build.health <= 1f) return;
+        _build.health = Mathf.Max(1f, _build.health - ArmedHealthSyncDelta);
     }
 
     // ---- Detonation ----
