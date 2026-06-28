@@ -1,4 +1,5 @@
 using System;
+using TrapLib.MP;
 using TrapLib.Utilities;
 using UnityEngine;
 
@@ -19,6 +20,12 @@ public abstract class TrapBase : MonoBehaviour
     protected SpriteRenderer _sr;
     protected bool _destroyed;
 
+    internal bool IsDestroyed => _destroyed;
+    internal bool WasRecentlyHitOnClient => MPSync.IsClient && Time.realtimeSinceStartup - _lastClientHitTime < 0.75f;
+
+    private Collider2D[] _overlapBuffer;
+    private float _lastClientHitTime = -999f;
+
     internal static int SpawnCount;
     internal static void ResetSpawnCount() => SpawnCount = 0;
 
@@ -30,7 +37,7 @@ public abstract class TrapBase : MonoBehaviour
 
     protected virtual void Awake()
     {
-        if (transform.position == Vector3.zero) return; // prefab template
+        if (transform.parent == null && transform.position == Vector3.zero) return; // prefab template
 
         // Unity Instantiate may drop plain-C# references — recover from registry
         if (Config == null)
@@ -109,6 +116,9 @@ public abstract class TrapBase : MonoBehaviour
         if (pos != Vector3.zero)
             TrapLibPlugin.Log?.LogInfo($"{GetType().Name} ({pos.x:F1},{pos.y:F1}) id={Config?.Id}");
 
+        if (MPSync.IsServerOrSP)
+            MPSync.QueueObjectSync(gameObject);
+
         // Delayed name/description setup — ensures BuildingEntity.Start has run first.
         if (Config != null)
             Invoke(nameof(SetTrapNameAndDescription), 0.05f);
@@ -134,7 +144,7 @@ public abstract class TrapBase : MonoBehaviour
         }
 
         // Health check — throttled to ~1 Hz to reduce per-frame overhead.
-        if (!_destroyed && _build != null)
+        if (!_destroyed && _build != null && !MPSync.IsClient)
         {
             _healthCheckTimer -= Time.deltaTime;
             if (_healthCheckTimer <= 0f)
@@ -142,6 +152,7 @@ public abstract class TrapBase : MonoBehaviour
                 _healthCheckTimer = 1f;
                 if (_build.health < 0.5f)
                 {
+                    ClampHealthToDestroyed();
                     _destroyed = true;
                     TrapSounds.PlayDestroy(_build);
                 }
@@ -273,18 +284,54 @@ public abstract class TrapBase : MonoBehaviour
             TrapBuildings.Remove(_build);
     }
 
+    internal void ClampHealthToDestroyed()
+    {
+        if (_build != null && _build.health != 0f)
+            _build.health = 0f;
+    }
+
+    protected bool TryFindOverlappingLimb(float padding, out Limb limb)
+    {
+        limb = null;
+        var col = GetComponent<Collider2D>();
+        if (col == null) return false;
+
+        if (_overlapBuffer == null)
+            _overlapBuffer = new Collider2D[16];
+
+        var bounds = col.bounds;
+        var size = (Vector2)bounds.size + Vector2.one * padding;
+        int count = Physics2D.OverlapBoxNonAlloc(bounds.center, size, transform.eulerAngles.z, _overlapBuffer);
+        for (int i = 0; i < count; i++)
+        {
+            var other = _overlapBuffer[i];
+            if (other == null || other == col) continue;
+
+            var found = Body.LimbFromObject(other.gameObject, other.ClosestPoint(transform.position));
+            if (found == null || found.body == null) continue;
+
+            limb = found;
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>Call before Object.Destroy to ensure OnDestroy sees the destroyed flag
     /// regardless of MonoBehaviour Update execution order.</summary>
-    internal void MarkDestroyed()
+    internal void MarkDestroyed(bool playSound = true)
     {
         if (_destroyed) return;
+        ClampHealthToDestroyed();
         _destroyed = true;
-        TrapSounds.PlayDestroy(_build);
+        if (playSound)
+            TrapSounds.PlayDestroy(_build);
     }
 
     // Unity SendMessage target — must be public
     public void BuildingHit(AttackInfo atk)
     {
+        if (MPSync.IsClient)
+            _lastClientHitTime = Time.realtimeSinceStartup;
         if (_build != null) TrapSounds.PlayHit(_build);
     }
 

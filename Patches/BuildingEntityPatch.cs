@@ -1,6 +1,7 @@
 using HarmonyLib;
 using TrapLib.MP;
 using UnityEngine;
+using System.Reflection;
 
 namespace TrapLib.Patches;
 
@@ -13,6 +14,7 @@ internal static class BuildingEntityPatch
 {
     private static GameObject _cachedDustBig;
     private static GameObject _cachedBuildingBreakParticle;
+    private static MethodInfo _chunkVisibleMethod;
 
     private static GameObject DustBigPrefab
     {
@@ -71,27 +73,18 @@ internal static class BuildingEntityPatch
         {
             var world = WorldGeneration.world;
             bool shouldDynamic = false;
-            if (world.worldExists)
+            if (world != null && world.worldExists)
             {
                 var worldPos = (Vector2)__instance.transform.position;
-                // In multiplayer, check if ANY player can see this chunk
+                // In multiplayer, defer to KrokMP's own visibility test so we match
+                // its chunk activation rules instead of approximating by distance.
                 if (TrapLibPlugin.KrokMpEnabled)
-                {
-                    foreach (var body in MPSync.AllPlayerBodies)
-                    {
-                        if (body == null) continue;
-                        float dist = Vector2.Distance(worldPos, body.transform.position);
-                        if (dist < 120f) // chunk render distance ~120 units
-                        {
-                            shouldDynamic = true;
-                            break;
-                        }
-                    }
-                }
+                    shouldDynamic = IsChunkVisibleByAnyPlayer(rb.position);
                 else
                 {
-                    shouldDynamic = world.GetClosestChunkRenderer(
-                        world.WorldToBlockPos(__instance.transform.position)).enabled;
+                    var renderer = world.GetClosestChunkRenderer(
+                        world.WorldToBlockPos(__instance.transform.position));
+                    shouldDynamic = renderer != null && renderer.enabled;
                 }
             }
             rb.bodyType = shouldDynamic ? RigidbodyType2D.Dynamic : RigidbodyType2D.Static;
@@ -100,19 +93,46 @@ internal static class BuildingEntityPatch
         if (!(__instance.health < 0.5f))
             return false;
 
+        __instance.health = 0f;
+
+        // Guard against re-entering destruction while the 0.1s destroy delay
+        // is ticking — prevents duplicate particles, sounds and item drops.
+        __instance.TryGetComponent<TrapBase>(out var trap);
+        if (trap != null && trap.IsDestroyed)
+        {
+            Object.Destroy(__instance.gameObject, 0.1f);
+            return false;
+        }
+
         // On MP client, destroy locally with visual feedback.
         // Drops are handled by the server; particles are purely cosmetic.
         if (MPSync.IsClient)
         {
+            if (__instance.TryGetComponent<ExplosiveTrapBase>(out var explosive))
+            {
+                if (!explosive.IsDetonated && (explosive.IsArmed || !explosive.WasRecentlyHitOnClient))
+                    explosive.DetonateFromRemoteSync();
+
+                if (!explosive.IsDetonated)
+                {
+                    SpawnDestructionParticles(__instance);
+                    var clientDustPrefab = DustBigPrefab;
+                    if (clientDustPrefab != null)
+                        Object.Instantiate(clientDustPrefab, __instance.transform.position, Quaternion.identity);
+                }
+
+                explosive.MarkDestroyed(playSound: !explosive.IsDetonated);
+                Object.Destroy(__instance.gameObject, 0.1f);
+                return false;
+            }
+
             SpawnDestructionParticles(__instance);
             var dustPrefab = DustBigPrefab;
             if (dustPrefab != null)
                 Object.Instantiate(dustPrefab, __instance.transform.position, Quaternion.identity);
-            if (__instance.TryGetComponent<TrapBase>(out var t))
-                t.MarkDestroyed();
-            // Deferred destroy: gives KrokMP ~1s to finish any pending sync
-            // packets for this object before it's removed from the scene.
-            Object.Destroy(__instance.gameObject, 1f);
+            trap?.MarkDestroyed();
+            // Keep one short delay so particles initialize before the object is removed.
+            Object.Destroy(__instance.gameObject, 0.1f);
             return false;
         }
 
@@ -159,9 +179,9 @@ internal static class BuildingEntityPatch
                 Random.Range(drop.conditionMin, drop.conditionMax), freshDrop);
         }
 
-        if (__instance.TryGetComponent<TrapBase>(out var trap))
-            trap.MarkDestroyed();
-        Object.Destroy(__instance.gameObject);
+        trap?.MarkDestroyed();
+        MPSync.QueueObjectSync(__instance.gameObject);
+        Object.Destroy(__instance.gameObject, 0.1f);
         return false;
     }
 
@@ -197,6 +217,22 @@ internal static class BuildingEntityPatch
             {
                 TrapLibPlugin.Log?.LogWarning("[BuildingEntityPatch] Failed to load resource: BuildingBreakParticle");
             }
+        }
+    }
+
+    private static bool IsChunkVisibleByAnyPlayer(Vector2 position)
+    {
+        try
+        {
+            _chunkVisibleMethod ??= System.Type.GetType("KrokoshaCasualtiesMP.SharedMain, KrokoshaCasualtiesMP")
+                ?.GetMethod("CheckIfChunkOnThisPositionIsVisibleByAnyPlayer", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(Vector2) }, null);
+            if (_chunkVisibleMethod == null) return false;
+            return (bool)_chunkVisibleMethod.Invoke(null, new object[] { position });
+        }
+        catch (System.Exception ex)
+        {
+            TrapLibPlugin.Log?.LogWarning($"[BuildingEntityPatch] KrokMP visibility check failed: {ex.Message}");
+            return false;
         }
     }
 }

@@ -20,6 +20,8 @@ public abstract class ContactTrapBase : TrapBase
     protected override void Update()
     {
         base.Update();
+        if (Config == null) return;
+
         _cooldown -= Time.deltaTime;
 
         if (_spriteSwapped && _cooldown <= 0f && _sr != null && _originalSprite != null)
@@ -27,6 +29,9 @@ public abstract class ContactTrapBase : TrapBase
             _sr.sprite = _originalSprite;
             _spriteSwapped = false;
         }
+
+        if (MPSync.IsServerOrSP && _cooldown <= 0f && TryFindOverlappingLimb(0.1f, out var limb))
+            TriggerContact(limb, visual: true);
     }
 
     protected virtual void OnCollisionEnter2D(Collision2D collision)
@@ -37,18 +42,24 @@ public abstract class ContactTrapBase : TrapBase
         var limb = Body.LimbFromObject(collision.collider.gameObject, collision.GetContact(0).point);
         if (limb == null || limb.body == null) return;
 
+        TriggerContact(limb, visual: true);
+    }
+
+    private void TriggerContact(Limb limb, bool visual)
+    {
         // Visual feedback — all instances
-        if (!string.IsNullOrEmpty(ContactConfig.ContactSound))
+        if (visual && !string.IsNullOrEmpty(ContactConfig.ContactSound))
             Sound.Play(ContactConfig.ContactSound, transform.position);
 
-        if (ContactConfig.ContactSprite != null && _sr != null)
+        if (visual && ContactConfig.ContactSprite != null && _sr != null)
         {
             if (!_spriteSwapped) _originalSprite = _sr.sprite;
             _sr.sprite = ContactConfig.ContactSprite;
             _spriteSwapped = true;
         }
 
-        ContactConfig.OnContactTriggered?.Invoke(limb, this);
+        if (visual)
+            ContactConfig.OnContactTriggered?.Invoke(limb, this);
 
         // Server-authoritative effect
         if (MPSync.IsServerOrSP)

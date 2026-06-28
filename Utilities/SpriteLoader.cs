@@ -188,6 +188,15 @@ public static class SpriteLoader
     /// </summary>
     public static void ClearCache()
     {
+        foreach (var sprite in Cache.Values)
+        {
+            if (sprite != null)
+            {
+                var texture = sprite.texture;
+                if (texture != null) Object.Destroy(texture);
+                Object.Destroy(sprite);
+            }
+        }
         Cache.Clear();
         CacheOrder.Clear();
     }

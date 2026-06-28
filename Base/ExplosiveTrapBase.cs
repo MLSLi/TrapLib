@@ -15,6 +15,17 @@ public abstract class ExplosiveTrapBase : TrapBase
     public float timeSincePressed;
     protected bool _pressed, _detonated;
 
+    internal bool IsDetonated => _detonated;
+    internal bool IsArmed => _pressed;
+
+    internal void DetonateFromRemoteSync()
+    {
+        Detonate();
+    }
+
+    private bool _applyingRemoteArmedState;
+    private bool _clientPredictedTrigger;
+
     private static GameObject _cachedDustBig;
     private static GameObject _cachedExplosionParticle;
     private static GameObject _cachedBlastmark;
@@ -68,6 +79,13 @@ public abstract class ExplosiveTrapBase : TrapBase
         }
 
         if (ShouldApplyRemoteArmedState())
+        {
+            _applyingRemoteArmedState = true;
+            Trigger();
+            _applyingRemoteArmedState = false;
+        }
+
+        if (MPSync.IsServerOrSP && ExpConfig.CustomTrigger == null && !_pressed && !_detonated && TryFindOverlappingLimb(0.25f, out _))
             Trigger();
 
         if (!_detonated)
@@ -109,8 +127,7 @@ public abstract class ExplosiveTrapBase : TrapBase
                 if (!IsPlayerLimbCollision(collision))
                     return;
             }
-            if (PlayerCamera.main?.body == null) return;
-            if (Vector2.Distance(transform.position, PlayerCamera.main.body.transform.position) > 50f) return;
+            if (!HasNearbyPlayerBody(50f)) return;
         }
 
         Trigger();
@@ -120,6 +137,23 @@ public abstract class ExplosiveTrapBase : TrapBase
     {
         var limb = Body.LimbFromObject(collision.collider.gameObject, collision.GetContact(0).point);
         return limb != null && limb.body != null;
+    }
+
+    private bool HasNearbyPlayerBody(float radius)
+    {
+        float radiusSqr = radius * radius;
+        if (MPSync.IsClient)
+        {
+            var body = PlayerCamera.main?.body;
+            return body != null && ((Vector2)(body.transform.position - transform.position)).sqrMagnitude <= radiusSqr;
+        }
+
+        foreach (var body in MPSync.AllPlayerBodies)
+        {
+            if (body != null && ((Vector2)(body.transform.position - transform.position)).sqrMagnitude <= radiusSqr)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -132,6 +166,9 @@ public abstract class ExplosiveTrapBase : TrapBase
     {
         if (_pressed || _detonated) return;
         _pressed = true;
+
+        if (MPSync.IsClient && !_applyingRemoteArmedState)
+            _clientPredictedTrigger = true;
 
         MarkArmedForClients();
 
@@ -159,6 +196,7 @@ public abstract class ExplosiveTrapBase : TrapBase
     {
         if (!MPSync.IsServerOrSP || _build == null || _build.health <= 1f) return;
         _build.health = Mathf.Max(1f, _build.health - ArmedHealthSyncDelta);
+        MPSync.QueueObjectSync(gameObject);
     }
 
     // ---- Detonation ----
@@ -213,16 +251,20 @@ public abstract class ExplosiveTrapBase : TrapBase
             ApplyBlast(center);
             ExpConfig.OnBurst?.Invoke(center, ExpConfig);
 
+            // Mark destroyed before setting health to zero so the
+            // BuildingEntityPatch guard skips re-entrant destruction frames.
+            MarkDestroyed(playSound: false);
             _build.health = 0f;
-            Object.Destroy(gameObject);
+            MPSync.QueueObjectSync(gameObject);
+            Object.Destroy(gameObject, 0.1f);
         }
         else if (!ExpConfig.NoClientFallback)
         {
             // Client: local visual explosion + particles.
-            // KrokMP may not reliably sync CreateExplosion for custom traps, so we
-            // spawn the explosion effect directly. Damage is handled by the server.
-            // Skip if NoClientFallback is set (KrokMP handles sync for this trap).
-            if (ExpConfig.ExplosionParams != null)
+            // KrokMP 4.0.1 syncs server CreateExplosion to clients. For a local
+            // client-predicted trigger, keep fallback visuals because the server can
+            // miss the contact if body/object sync arrives late.
+            if ((!TrapLibPlugin.KrokMpEnabled || _clientPredictedTrigger) && ExpConfig.ExplosionParams != null)
             {
                 var e = ExpConfig.ExplosionParams;
                 Sound.Play(e.sound, center, twoDimensional: false, pitchShift: false);
@@ -242,7 +284,6 @@ public abstract class ExplosiveTrapBase : TrapBase
                 else
                     TrapLibPlugin.Log?.LogWarning($"[ExplosiveTrapBase] Failed to load resource: Special/blastmark");
                 
-                SpawnFogParticles(center, ExpConfig.ExplosionRange, ExpConfig.FogColor);
             }
             // Note: we deliberately do NOT apply ApplyBlastDebuff on the client.
             // The server runs ApplyBlast authoritatively; applying it on the

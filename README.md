@@ -5,6 +5,7 @@ A BepInEx library for [Casualties Unknown](https://store.steampowered.com/app/45
 ## Features
 
 - **One-line registration** — `TrapRegistry.Register<T>(config)` hooks into world generation automatically
+- **Biome-aware distribution** — traps are placed only in world bands matching `MinBiomeDepth`/`MaxBiomeDepth`
 - **Explosive traps** — collision/custom triggers → fuse → explosion → persistent zone → particles
 - **Contact traps** — limb-based contact with cooldowns and callbacks
 - **Persistent zones** — radius-based area effects with fade-out, body enter/exit events, and tick timers

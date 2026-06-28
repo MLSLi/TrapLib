@@ -113,7 +113,8 @@ Or via console:
 | `Health` | `float` | `400` | Hit points |
 | `ColliderSize` | `Vector2` | `(2, 1)` | BoxCollider2D size |
 | `Metallic` | `bool` | `true` | Metallic surface (affects footstep sounds) |
-| `MinBiomeDepth` | `int` | `0` | Minimum biome depth for spawning (0-based) |
+| `MinBiomeDepth` | `int` | `0` | Minimum biome depth for spawning (0-based). Traps are distributed only within the corresponding vertical band of the world |
+| `MaxBiomeDepth` | `int` | `0` | Maximum biome depth for spawning (0-based, inclusive). `0` = no upper limit |
 | `SpawnRateMin` | `float` | required | Lower bound fraction of `totalTrapRarity` |
 | `SpawnRateMax` | `float` | required | Upper bound fraction of `totalTrapRarity` |
 | `SpawnYOffset` | `float` | `0` | World-space offset passed as `spawnYOffset` to `DistributeEntities` |
@@ -402,3 +403,67 @@ YourMod/
 └── res/
     └── your_sprite.png
 ```
+
+---
+
+## Changelog
+
+### v1.1.3
+
+- **KrokMP v4.0.1 support**: `ResourcesLoadPatch` hooks KrokMP's internal `LoadObjectResource` instead of patching `Resources.Load` globally. `MPSync.QueueObjectSync` added for server-authoritative state sync. Server-side `Object.Destroy` delayed to 0.1s to ensure health=0 sync reaches clients before the GameObject is destroyed. `BuildingEntityPatch` chunk visibility uses KrokMP's `CheckIfChunkOnThisPositionIsVisibleByAnyPlayer`.
+- **Biome-aware spawn distribution**: `DistributeEntities` now filters candidate positions by biome depth computed from block Y coordinates. Traps constrained to `[MinBiomeDepth, MaxBiomeDepth]` no longer appear at incorrect depths.
+- **Re-entrant destruction guard**: `BuildingEntityPatch.Prefix` skips destruction logic when `TrapBase.IsDestroyed` is already true, preventing duplicate item drops and particle spam during the 0.1s destroy delay window.
+- **Client hit tracking**: `BuildingHit` records `_lastClientHitTime`; `ExplosiveTrapBase` uses it for `WasRecentlyHitOnClient` to decide client-side detonation behaviour.
+- **ContactTrapBase** now detects overlapping limbs server-side via `TryFindOverlappingLimb`.
+- **SpriteLoader.ClearCache** now properly destroys cached textures and sprites.
+
+### v1.1.2
+
+- `MaxBiomeDepth` field added to `TrapConfig`; traps now support `[MinBiomeDepth, MaxBiomeDepth]` range constraints.
+- `TrapPlacement` utilities: ignore-self-layer, surface snap, normal offset helpers.
+- `SpriteLoader.RequireTexture` / `RequireFromFileAutoCrop` for fail-fast sprite loading.
+- `ExplosiveTrapBase` armed-state sync via health marker for KrokMP clients.
+- `TrapZone.Create` init delegate overload.
+- Restore object layer after `CustomPlacement` to fix hover tooltip on custom-placed traps.
+- Rename spawn offset config to `SpawnYOffset` / `SpawnYOffsetDeviation` / `SpawnInGround` semantics.
+
+### v1.1.1
+
+- Add `MaxBiomeDepth` to `TrapConfig`, gating upper biome bound for spawn distribution.
+
+### v1.1.0
+
+- Fix `SnapToSurface` origin overshoot: 1f offset instead of 4f to prevent snapping to ceilings in narrow caves.
+- Fix `SpawnCount` reflection by adding `BindingFlags.FlattenHierarchy` for derived trap types.
+- Cache resource prefabs (`DustBig`, `ExplosionParticle`, `Blastmark`, `BuildingBreakParticle`) to avoid repeated `Resources.Load` calls.
+- Add `TrapBuildings` `HashSet<BuildingEntity>` for O(1) lookup in `BuildingEntityPatch`, replacing expensive per-frame `TryGetComponent`.
+- Multiplayer-aware rigidbody optimization using `MPSync.AllPlayerBodies`.
+- Client-side `Detonate` on health→0 sync for visual consistency when `CustomTrigger` cannot independently detect remote triggers.
+- Deferred client-side destroy (1s delay) to let KrokMP finish sync packets.
+- Add `NoClientFallback` config option to skip duplicate explosion effects when KrokMP handles `CreateExplosion` sync.
+- Lazy-populate `TrapSounds.Map` from `TrapRegistry` on first access.
+- `SpriteLoader`: FIFO cache eviction (max 128), `ClearCache()`, `CacheCount` property.
+- `MPSync`: cached `PropertyInfo` for `IsClient`, `AllPlayerBodies` enumerator, `RunAfterDelay` coroutine, improved error logging.
+- Fix `ContactTrapBase`/`ExplosiveTrapBase` `OnDestroy` calling base properly.
+- Null safety guards for `Utils.Create`, `Camera.main`, resource loads.
+- `TrapZone.OnExpiring` runs every frame on all instances for visual fade.
+- Block `/spawn` on MP clients (server/host only).
+
+### v1.0.2
+
+- Fix `MPSync.IsClient` stale cache — re-evaluate `Net.running`/`Net.is_server` each call instead of caching; fixes "Client can't do that" crash on pure clients.
+- `MPSync.QueueHealthSync` silently no-ops on pure clients with try-catch defence-in-depth.
+- `ExplosiveTrapConfig`: add `ZoneRadius` to decouple zone radius from `ExplosionRange`.
+- `TrapZone.Create<T>(name, center, cfg)`: static factory deduplicating zone GameObject setup.
+- `TimedDestroy`: reusable base component replacing repeated `_elapsed += dt`/destroy patterns.
+- `ExplosiveTrapBase.OnCollisionEnter2D`: `Body.LimbFromObject` fallback for ragdolled players.
+- `ExplosiveTrapBase.Detonate` client path: apply blast debuff locally for immediate feedback.
+
+### v1.0.1
+
+- Add `worldExists` guard in `TrapSpawner` to prevent trap duplication during world regeneration (`Clear`→`InstantiateWorld` gap).
+- Fix `SnapToSurface`: add `OverlapPoint` safety loop before raycast origin to prevent traps floating or snapping to wrong surfaces near walls/overhangs.
+
+### v1.0.0
+
+- Initial release: trap registration, world-gen distribution, explosive/contact trap base classes, persistent zones, MP sync, console `/spawn` command, dual-locale support.

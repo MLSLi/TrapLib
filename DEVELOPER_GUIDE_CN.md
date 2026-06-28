@@ -116,7 +116,8 @@ var trap = TrapRegistry.Spawn("mytrap", new Vector3(100f, 50f, 0f));
 | `Health` | `float` | `400` | 生命值 |
 | `ColliderSize` | `Vector2` | `(2, 1)` | BoxCollider2D 尺寸 |
 | `Metallic` | `bool` | `true` | 是否金属（影响脚步声） |
-| `MinBiomeDepth` | `int` | `0` | 最低出现层级（0-based。0=第一层） |
+| `MinBiomeDepth` | `int` | `0` | 最低出现层级（0-based。0=第一层）。陷阱只会在世界对应纵向带内分布 |
+| `MaxBiomeDepth` | `int` | `0` | 最高出现层级（0-based，含）。`0` = 无上限 |
 | `SpawnRateMin` | `float` | 必填 | 占 `totalTrapRarity` 的下限比例 |
 | `SpawnRateMax` | `float` | 必填 | 占 `totalTrapRarity` 的上限比例 |
 | `SpawnYOffset` | `float` | `0` | 传给 `DistributeEntities` 的 `spawnYOffset`，表示沿表面法线的世界空间偏移 |
@@ -422,3 +423,67 @@ public class GasZone : TrapZone
 └── res/
     └── your_sprite.png
 ```
+
+---
+
+## 更新日志
+
+### v1.1.3
+
+- **KrokMP v4.0.1 支持**：`ResourcesLoadPatch` 改为 hook KrokMP 内部的 `LoadObjectResource`，不再全局拦截 `Resources.Load`。新增 `MPSync.QueueObjectSync` 用于服务端权威状态同步。服务端 `Object.Destroy` 改为延迟 0.1s，确保 health=0 同步先于 GO 销毁到达客户端。`BuildingEntityPatch` 区块可见性使用 KrokMP 的 `CheckIfChunkOnThisPositionIsVisibleByAnyPlayer`。
+- **按层级分布**：`DistributeEntities` 现在通过方块 Y 坐标反算所属 biome，按 `[MinBiomeDepth, MaxBiomeDepth]` 过滤候选位置，陷阱不再出现在错误层级。
+- **重复破坏守卫**：`BuildingEntityPatch.Prefix` 在 `TrapBase.IsDestroyed` 已为 true 时跳过破坏逻辑，防止 0.1s 销毁延迟窗口内重复掉落物品和粒子。
+- **客户端受击追踪**：`BuildingHit` 记录 `_lastClientHitTime`；`ExplosiveTrapBase` 据此判断 `WasRecentlyHitOnClient` 来决定客户端预测引爆行为。
+- **ContactTrapBase** 服务端通过 `TryFindOverlappingLimb` 检测重叠肢体。
+- **SpriteLoader.ClearCache** 现在正确销毁缓存的纹理和精灵。
+
+### v1.1.2
+
+- 新增 `MaxBiomeDepth` 字段支持 `[MinBiomeDepth, MaxBiomeDepth]` 范围约束
+- `TrapPlacement` 辅助工具：忽略自身层级、贴地、法线偏移
+- `SpriteLoader.RequireTexture` / `RequireFromFileAutoCrop` 快速失败式贴图加载
+- `ExplosiveTrapBase` 通过 health marker 实现 KrokMP 客户端引信状态同步
+- `TrapZone.Create` 添加初始化委托重载
+- `CustomPlacement` 后恢复 GameObject layer，修复核弹等自定义放置陷阱的悬停 tooltip
+- 重命名生成偏移字段为 `SpawnYOffset` / `SpawnYOffsetDeviation` / `SpawnInGround`
+
+### v1.1.1
+
+- `TrapConfig` 新增 `MaxBiomeDepth`，约束陷阱生成的上层级边界
+
+### v1.1.0
+
+- 修复 `SnapToSurface` 起点过高：从 4f 改为 1f，防止窄洞穴内陷阱贴天花板而非地面
+- 修复 `SpawnCount` 反射缺少 `FlattenHierarchy` 导致派生陷阱类日志计数累积
+- 缓存资源预制体（`DustBig`、`ExplosionParticle`、`Blastmark`、`BuildingBreakParticle`），避免重复 `Resources.Load`
+- 引入 `TrapBuildings` `HashSet<BuildingEntity>` 实现 O(1) 查找，替代每帧 `TryGetComponent`
+- 多人物理体优化使用 `MPSync.AllPlayerBodies` 检测玩家距离
+- 客户端 health→0 时触发 `Detonate`，解决 `CustomTrigger` 无法感知远程触发导致的视觉不一致
+- 客户端延迟销毁（1s），给 KrokMP 同步数据包留出时间
+- 新增 `NoClientFallback` 配置，当 KrokMP 处理 `CreateExplosion` 同步时跳过重复爆炸效果
+- `TrapSounds.Map` 首次访问时从 `TrapRegistry` 惰性填充
+- `SpriteLoader`：FIFO 缓存驱逐（最大 128）、`ClearCache()`、`CacheCount`
+- `MPSync`：缓存 `PropertyInfo`、`AllPlayerBodies` 枚举器、`RunAfterDelay` 协程、改进错误日志
+- 修复 `ContactTrapBase`/`ExplosiveTrapBase` `OnDestroy` 正确调用基类
+- `Utils.Create`、`Camera.main`、资源加载添加空安全检查
+- `TrapZone.OnExpiring` 每帧在所有实例上运行以实现视觉淡出
+- 阻止 MP 客户端使用 `/spawn`（仅服务端/主机可用）
+
+### v1.0.2
+
+- 修复 `MPSync.IsClient` 过期缓存——每次调用重新评估 `Net.running`/`Net.is_server`，修复纯客户端"Client can't do that"崩溃
+- `MPSync.QueueHealthSync` 在纯客户端静默 no-op，invoke 层添加 try-catch 防御
+- `ExplosiveTrapConfig` 新增 `ZoneRadius`，将区域半径与 `ExplosionRange` 解耦
+- `TrapZone.Create<T>(name, center, cfg)` 静态工厂消除区域 GameObject 初始化重复代码
+- `TimedDestroy` 可复用基类，替换重复的 `_elapsed += dt`/destroy 模式
+- `ExplosiveTrapBase.OnCollisionEnter2D` 添加 `Body.LimbFromObject` 回退以支持布娃娃玩家触发地雷
+- `ExplosiveTrapBase.Detonate` 客户端路径：本地应用冲击 debuff 提供即时反馈
+
+### v1.0.1
+
+- `TrapSpawner` 添加 `worldExists` 守卫，防止世界重生成（`Clear`→`InstantiateWorld` 间隙）导致的陷阱重复
+- 修复 `SnapToSurface`：射线起点前添加 `OverlapPoint` 安全循环，防止陷阱在墙壁/悬崖附近悬空或错位
+
+### v1.0.0
+
+- 初始发布：陷阱注册、世界生成集成、爆炸/接触陷阱基类、持续区域、多人同步、控制台 `/spawn` 命令、中英双语支持

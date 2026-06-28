@@ -87,7 +87,7 @@ public static class MPSync
     }
 
     /// <summary>Invalidate cached reflection delegates.</summary>
-    public static void Refresh() { _forceSync = null; _runningProp = null; _serverProp = null; _krokMPChecked = false; }
+    public static void Refresh() { _forceSync = null; _forceObjectSync = null; _runningProp = null; _serverProp = null; _krokMPChecked = false; }
 
     /// <summary>
     /// Run an action after a delay, with server/SP guard and null safety.
@@ -114,6 +114,7 @@ public static class MPSync
     // ---- Force health sync ----
 
     private static Action<Body> _forceSync;
+    private static Action<GameObject> _forceObjectSync;
 
     /// <summary>
     /// Force KrokMP to immediately sync body state to clients.
@@ -149,6 +150,37 @@ public static class MPSync
         catch (Exception ex)
         {
             TrapLibPlugin.Log?.LogWarning($"[MPSync] QueueHealthSync invoke failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Force KrokMP to sync an object after authoritative trap state changes.
+    /// Safe without KrokMP; degrades to no-op.
+    /// </summary>
+    public static void QueueObjectSync(GameObject go)
+    {
+        if (go == null || IsClient) return;
+        if (_forceObjectSync == null)
+        {
+            try
+            {
+                var registry = Type.GetType("KrokoshaCasualtiesMP.NetObjectRegistry, KrokoshaCasualtiesMP");
+                var syncMethod = registry?.GetMethod("Server_ObjectSyncSingle", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(GameObject) }, null);
+                if (syncMethod != null)
+                    _forceObjectSync = obj => syncMethod.Invoke(null, new object[] { obj });
+            }
+            catch (Exception ex)
+            {
+                TrapLibPlugin.Log?.LogWarning($"[MPSync] QueueObjectSync setup failed (KrokMP API may have changed): {ex.Message}");
+                _forceObjectSync = _ => { };
+            }
+            if (_forceObjectSync == null) _forceObjectSync = _ => { };
+        }
+
+        try { _forceObjectSync(go); }
+        catch (Exception ex)
+        {
+            TrapLibPlugin.Log?.LogWarning($"[MPSync] QueueObjectSync invoke failed: {ex.Message}");
         }
     }
 }
